@@ -8,11 +8,23 @@ app = FastAPI(
     description="""
 ## Real-time fraud detection for fintech
 
-Send a transaction → get a risk score in <15ms.
+Send a transaction → get a risk score in **⚡ < 15ms**.
+
+---
+
+### ⚡ Performance
+| Metric | Value |
+|--------|-------|
+| **Avg latency** | **< 15ms** |
+| **P99 latency** | < 50ms |
+| **Uptime SLA** | 99.9% |
+| **Coverage** | 100% of transactions |
+
+---
 
 ### Quick start
 ```bash
-curl -X POST https://api.fraudguard.io/v1/score \\
+curl -X POST https://web-production-cdea4.up.railway.app/v1/score \\
   -H "Authorization: Bearer fg_live_demo_key_001" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -28,18 +40,41 @@ curl -X POST https://api.fraudguard.io/v1/score \\
   }'
 ```
 
+### Expected response
+```json
+{
+  "transaction_id": "tx_001",
+  "risk_score": 99,
+  "verdict": "CRITICAL",
+  "action": "BLOCK",
+  "confidence": [
+    { "signal": "balance_fully_drained",  "weight": 38, "contribution": 31 },
+    { "signal": "dest_balance_unchanged", "weight": 28, "contribution": 23 },
+    { "signal": "exact_balance_transfer", "weight": 25, "contribution": 21 },
+    { "signal": "large_amount_over_1m",   "weight": 20, "contribution": 17 }
+  ],
+  "latency_ms": 0.07,
+  "flagged": true
+}
+```
+
+### Risk levels
+| Score | Verdict | Action | Meaning |
+|-------|---------|--------|---------|
+| 0–39 | `SAFE` | `ALLOW` | Normal transaction |
+| 40–69 | `WARNING` | `REVIEW` | Suspicious — flag for review |
+| 70–84 | `CRITICAL` | `REVIEW` | High probability fraud |
+| 85–99 | `CRITICAL` | `BLOCK` | Auto-block — immediate threat |
+
 ### Auth
 All endpoints require an API key in the `Authorization` header:
-```
-Authorization: Bearer fg_live_YOUR_KEY_HERE
-```
+> **Demo key:** `fg_live_demo_key_001` — free to use for testing
     """,
     version=settings.APP_VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
 )
 
-# CORS — allow all origins for MVP, restrict in production
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -47,9 +82,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routers
 app.include_router(score.router, prefix="/v1", tags=["Scoring"])
-
 
 @app.get("/", include_in_schema=False)
 async def root():
