@@ -23,7 +23,7 @@ class Action(str, Enum):
     BLOCK = "BLOCK"
 
 
-# ── REQUEST ───────────────────────────────────────────────────────
+# REQUEST
 class ScoreRequest(BaseModel):
     transaction_id: str = Field(..., example="tx_001")
     amount: float = Field(..., gt=0, example=1250000)
@@ -36,17 +36,18 @@ class ScoreRequest(BaseModel):
     dest_balance_after: Optional[float] = Field(0, ge=0, example=0)
 
 
-# ── RESPONSE ──────────────────────────────────────────────────────
+# RESPONSE
 class SignalDetail(BaseModel):
     signal: str
-    weight: int        # raw weight %
-    contribution: int  # normalized contribution to final score
+    weight: int
+    contribution: int
 
 class ScoreResponse(BaseModel):
     transaction_id: str
     risk_score: int = Field(..., ge=0, le=100)
     verdict: Verdict
     action: Action
+    reason: list[str]
     confidence: list[SignalDetail]
     latency_ms: float
     flagged: bool

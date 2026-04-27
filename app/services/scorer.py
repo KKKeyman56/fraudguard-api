@@ -1,143 +1,110 @@
-"""
-FraudGuard Scoring Engine
-Rule-based fraud detection with weighted signal normalization.
-Each rule contributes a weight; active rules are normalized to 100%.
-"""
-from app.models.schemas import ScoreRequest, SignalDetail, Verdict, Action
+import pytest
+from app.models.schemas import ScoreRequest, TransactionType
+from app.services.scorer import compute_score, get_verdict
 
 
-# ── SIGNAL DEFINITIONS ────────────────────────────────────────────
-# Each signal: name, raw_weight (0-100), condition function
-SIGNALS = [
-    {
-        "name": "balance_fully_drained",
-        "weight": 38,
-        "description": "Origin balance wiped to zero",
-        "check": lambda r: (
-            r.origin_balance_before > 0
-            and r.origin_balance_after == 0
-            and r.type in ("TRANSFER", "CASH_OUT")
-        ),
-    },
-    {
-        "name": "dest_balance_unchanged",
-        "weight": 28,
-        "description": "Destination received nothing (money mule pattern)",
-        "check": lambda r: (
-            r.dest_balance_before == 0
-            and r.dest_balance_after == 0
-            and r.type == "TRANSFER"
-        ),
-    },
-    {
-        "name": "exact_balance_transfer",
-        "weight": 25,
-        "description": "Amount exactly equals origin balance",
-        "check": lambda r: (
-            abs(r.amount - r.origin_balance_before) < 1
-            and r.type in ("TRANSFER", "CASH_OUT")
-        ),
-    },
-    {
-        "name": "cashout_full_drain",
-        "weight": 22,
-        "description": "CASH_OUT drains account completely",
-        "check": lambda r: (
-            r.type == "CASH_OUT"
-            and r.origin_balance_before > 0
-            and r.origin_balance_after == 0
-        ),
-    },
-    {
-        "name": "large_amount_over_1m",
-        "weight": 20,
-        "description": "Transaction amount exceeds $1M",
-        "check": lambda r: r.amount > 1_000_000,
-    },
-    {
-        "name": "large_amount_500k_1m",
-        "weight": 12,
-        "description": "Transaction amount $500K–$1M",
-        "check": lambda r: 500_000 <= r.amount <= 1_000_000,
-    },
-    {
-        "name": "dest_had_zero_balance",
-        "weight": 10,
-        "description": "Destination account had zero balance before",
-        "check": lambda r: (
-            r.dest_balance_before == 0
-            and r.type == "TRANSFER"
-        ),
-    },
-    {
-        "name": "normal_payment_pattern",
-        "weight": 6,
-        "description": "Normal payment — low-risk baseline",
-        "check": lambda r: r.type == "PAYMENT",
-    },
-]
-
-
-# ── THRESHOLDS ────────────────────────────────────────────────────
-SCORE_CRITICAL = 70
-SCORE_WARNING  = 40
-SCORE_AUTO_BLOCK = 85
-
-
-def compute_score(request: ScoreRequest) -> tuple[int, list[SignalDetail]]:
-    """
-    Compute a fraud risk score (0–100) for a transaction.
-    Returns (score, list of active signals with contributions).
-    """
-    # Collect active signals
-    active = [s for s in SIGNALS if s["check"](request)]
-
-    # Remove low-risk baseline if any high-weight signals are active
-    high_weight_active = [s for s in active if s["weight"] >= 10]
-    if not high_weight_active:
-        # Only low-risk signals active — definitely safe
-        return 8, [SignalDetail(signal=active[0]["name"], weight=active[0]["weight"], contribution=100)] if active else []
-
-    # Drop the baseline/normal signals when real signals exist
-    active = high_weight_active
-
-    total_weight = sum(s["weight"] for s in active)
-
-    # Base score: weighted sum normalized to 100
-    raw_score = sum(
-        (s["weight"] / total_weight) * 100
-        for s in active
+def make_tx(**kwargs) -> ScoreRequest:
+    defaults = dict(
+        transaction_id="tx_test",
+        amount=1000,
+        type=TransactionType.PAYMENT,
+        origin_account="C111",
+        dest_account="C222",
+        origin_balance_before=5000,
+        origin_balance_after=4000,
+        dest_balance_before=0,
+        dest_balance_after=0,
     )
-
-    # Apply multiplier for stacked high-weight signals
-    critical_signals = [s for s in active if s["weight"] >= 22]
-    if len(critical_signals) >= 2:
-        raw_score = min(raw_score * 1.15, 99)
-
-    score = max(1, min(99, int(raw_score)))
-
-    # Build signal detail list (normalized contributions)
-    signals = [
-        SignalDetail(
-            signal=s["name"],
-            weight=s["weight"],
-            contribution=round((s["weight"] / total_weight) * 100),
-        )
-        for s in active
-    ]
-    signals.sort(key=lambda x: x.weight, reverse=True)
-
-    return score, signals
+    defaults.update(kwargs)
+    return ScoreRequest(**defaults)
 
 
-def get_verdict(score: int) -> tuple[Verdict, Action]:
-    if score >= SCORE_CRITICAL:
-        verdict = Verdict.CRITICAL
-        action = Action.BLOCK if score >= SCORE_AUTO_BLOCK else Action.REVIEW
-    elif score >= SCORE_WARNING:
-        verdict = Verdict.WARNING
-        action = Action.REVIEW
-    else:
-        verdict = Verdict.SAFE
-        action = Action.ALLOW
-    return verdict, action
+# ── SCORING TESTS ─────────────────────────────────────────────────
+
+def test_low_risk_payment():
+    tx = make_tx(type="PAYMENT", amount=100, origin_balance_before=5000, origin_balance_after=4900)
+    score, signals, reasons = compute_score(tx)
+    assert score < 40, f"Expected low score, got {score}"
+
+
+def test_balance_fully_drained_transfer():
+    tx = make_tx(
+        type="TRANSFER",
+        amount=5000,
+        origin_balance_before=5000,
+        origin_balance_after=0,
+    )
+    score, signals, reasons = compute_score(tx)
+    assert score >= 40, f"Expected high score for drained balance, got {score}"
+    signal_names = [s.signal for s in signals]
+    assert "balance_fully_drained" in signal_names
+
+
+def test_exact_balance_transfer():
+    tx = make_tx(
+        type="TRANSFER",
+        amount=5000,
+        origin_balance_before=5000,
+        origin_balance_after=0,
+    )
+    score, signals, reasons = compute_score(tx)
+    signal_names = [s.signal for s in signals]
+    assert "exact_balance_transfer" in signal_names
+
+
+def test_large_amount_over_1m():
+    tx = make_tx(amount=1_500_000)
+    score, signals, reasons = compute_score(tx)
+    signal_names = [s.signal for s in signals]
+    assert "large_amount_over_1m" in signal_names
+
+
+def test_cashout_full_drain():
+    tx = make_tx(
+        type="CASH_OUT",
+        amount=3000,
+        origin_balance_before=3000,
+        origin_balance_after=0,
+    )
+    score, signals, reasons = compute_score(tx)
+    assert score >= 40
+    signal_names = [s.signal for s in signals]
+    assert "cashout_full_drain" in signal_names
+
+
+def test_confidence_sums_to_100():
+    tx = make_tx(
+        type="TRANSFER",
+        amount=5000,
+        origin_balance_before=5000,
+        origin_balance_after=0,
+        dest_balance_before=0,
+        dest_balance_after=0,
+    )
+    _, signals, _ = compute_score(tx)
+    total = sum(s.contribution for s in signals)
+    # Allow ±2 rounding error
+    assert abs(total - 100) <= 2, f"Contributions sum to {total}, expected ~100"
+
+
+# ── VERDICT TESTS ─────────────────────────────────────────────────
+
+def test_verdict_safe():
+    verdict, action = get_verdict(20)
+    assert verdict.value == "SAFE"
+    assert action.value == "ALLOW"
+
+def test_verdict_warning():
+    verdict, action = get_verdict(55)
+    assert verdict.value == "WARNING"
+    assert action.value == "REVIEW"
+
+def test_verdict_critical_review():
+    verdict, action = get_verdict(75)
+    assert verdict.value == "CRITICAL"
+    assert action.value == "REVIEW"
+
+def test_verdict_critical_block():
+    verdict, action = get_verdict(90)
+    assert verdict.value == "CRITICAL"
+    assert action.value == "BLOCK"

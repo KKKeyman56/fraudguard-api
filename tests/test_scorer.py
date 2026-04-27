@@ -23,7 +23,7 @@ def make_tx(**kwargs) -> ScoreRequest:
 
 def test_low_risk_payment():
     tx = make_tx(type="PAYMENT", amount=100, origin_balance_before=5000, origin_balance_after=4900)
-    score, signals = compute_score(tx)
+    score, signals, reasons = compute_score(tx)
     assert score < 40, f"Expected low score, got {score}"
 
 
@@ -34,7 +34,7 @@ def test_balance_fully_drained_transfer():
         origin_balance_before=5000,
         origin_balance_after=0,
     )
-    score, signals = compute_score(tx)
+    score, signals, reasons = compute_score(tx)
     assert score >= 40, f"Expected high score for drained balance, got {score}"
     signal_names = [s.signal for s in signals]
     assert "balance_fully_drained" in signal_names
@@ -47,14 +47,14 @@ def test_exact_balance_transfer():
         origin_balance_before=5000,
         origin_balance_after=0,
     )
-    score, signals = compute_score(tx)
+    score, signals, reasons = compute_score(tx)
     signal_names = [s.signal for s in signals]
     assert "exact_balance_transfer" in signal_names
 
 
 def test_large_amount_over_1m():
     tx = make_tx(amount=1_500_000)
-    score, signals = compute_score(tx)
+    score, signals, reasons = compute_score(tx)
     signal_names = [s.signal for s in signals]
     assert "large_amount_over_1m" in signal_names
 
@@ -66,7 +66,7 @@ def test_cashout_full_drain():
         origin_balance_before=3000,
         origin_balance_after=0,
     )
-    score, signals = compute_score(tx)
+    score, signals, reasons = compute_score(tx)
     assert score >= 40
     signal_names = [s.signal for s in signals]
     assert "cashout_full_drain" in signal_names
@@ -81,7 +81,7 @@ def test_confidence_sums_to_100():
         dest_balance_before=0,
         dest_balance_after=0,
     )
-    _, signals = compute_score(tx)
+    _, signals, _ = compute_score(tx)
     total = sum(s.contribution for s in signals)
     # Allow ±2 rounding error
     assert abs(total - 100) <= 2, f"Contributions sum to {total}, expected ~100"
