@@ -1,4 +1,4 @@
-"""
+﻿"""
 FraudGuard Scoring Engine
 Rule-based fraud detection with weighted signal normalization.
 """
