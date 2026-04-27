@@ -28,7 +28,7 @@ SIGNALS = [
     },
     {
         "name": "exact_balance_transfer",
-        "reason": "exact transfer match \u2014 amount equals full balance",
+        "reason": "exact transfer match - amount equals full balance",
         "weight": 25,
         "check": lambda r: (
             abs(r.amount - r.origin_balance_before) < 1
@@ -47,13 +47,13 @@ SIGNALS = [
     },
     {
         "name": "large_amount_over_1m",
-        "reason": "large amount anomaly \u2014 exceeds $1M threshold",
+        "reason": "large amount anomaly - exceeds $1M threshold",
         "weight": 20,
         "check": lambda r: r.amount > 1_000_000,
     },
     {
         "name": "large_amount_500k_1m",
-        "reason": "elevated amount \u2014 $500K to $1M range",
+        "reason": "elevated amount - $500K to $1M range",
         "weight": 12,
         "check": lambda r: 500_000 <= r.amount <= 1_000_000,
     },
@@ -68,7 +68,7 @@ SIGNALS = [
     },
     {
         "name": "normal_payment_pattern",
-        "reason": "normal payment pattern \u2014 low risk",
+        "reason": "normal payment pattern - low risk",
         "weight": 6,
         "check": lambda r: r.type == "PAYMENT",
     },
@@ -131,3 +131,5 @@ def compute_score(request: ScoreRequest) -> tuple[int, list[SignalDetail], list[
     )
 
     return score, signals, reasons, confidence_score
+
+
