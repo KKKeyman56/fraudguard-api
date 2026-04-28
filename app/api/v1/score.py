@@ -1,7 +1,8 @@
 import time
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 from app.models.schemas import ScoreRequest, ScoreResponse, ErrorResponse, RiskLevel
-from app.services.scorer import compute_score, get_risk_level, get_action
+from app.services.scorer import compute_score, get_risk_level, get_action, ENGINE_VERSION
 from app.core.auth import verify_api_key
 
 router = APIRouter()
@@ -22,30 +23,31 @@ Submit a financial transaction and receive a fraud risk score in **⚡ < 15ms**.
 - `reason` — human-readable list of triggered fraud signals
 - `confidence` — per-signal breakdown with weight + contribution %
 - `is_suspicious` — true if risk_level is MEDIUM or above
-- `idempotency_key` — echoed back if provided in request
+- `timestamp` — UTC time this score was computed
+- `engine_version` — scoring model version (use for audit trails)
+- `idempotency_key` — echoed back only if provided in request
 
-**Fraud scenario example response:**
+> **Note on latency:** `latency_ms` reflects local rule-based inference time.
+> End-to-end network latency depends on client location and is typically 20–80ms.
+
+**Example response:**
 ```json
 {
   "transaction_id": "tx_001",
-  "idempotency_key": "idem_tx_001_1714200000",
   "risk_score": 99,
   "risk_level": "CRITICAL",
   "action": "BLOCK",
-  "confidence_score": 0.92,
+  "confidence_score": 0.99,
   "reason": [
     "balance fully drained",
     "destination balance unchanged (money mule pattern)",
-    "exact transfer match — amount equals full balance",
-    "large amount anomaly — exceeds $1M threshold"
-  ],
-  "confidence": [
-    { "signal": "balance_fully_drained",  "weight": 38, "contribution": 31 },
-    { "signal": "dest_balance_unchanged", "weight": 28, "contribution": 23 },
-    { "signal": "exact_balance_transfer", "weight": 25, "contribution": 21 },
-    { "signal": "large_amount_over_1m",   "weight": 20, "contribution": 17 }
+    "exact transfer match - amount equals full balance",
+    "large amount anomaly - exceeds $1M threshold",
+    "destination account previously had zero balance"
   ],
   "is_suspicious": true,
+  "timestamp": "2026-04-27T13:55:00Z",
+  "engine_version": "v1.2.0",
   "latency_ms": 0.07
 }
 ```
@@ -79,7 +81,7 @@ async def score_transaction(
 
     return ScoreResponse(
         transaction_id=request.transaction_id,
-        idempotency_key=request.idempotency_key,
+        idempotency_key=request.idempotency_key or None,
         risk_score=score,
         risk_level=risk_level,
         action=action,
@@ -87,10 +89,16 @@ async def score_transaction(
         reason=reasons,
         confidence=signals,
         is_suspicious=risk_level in (RiskLevel.MEDIUM, RiskLevel.HIGH, RiskLevel.CRITICAL),
+        timestamp=datetime.now(timezone.utc),
+        engine_version=ENGINE_VERSION,
         latency_ms=latency_ms,
     )
 
 
 @router.get("/health", include_in_schema=False)
 async def health():
-    return {"status": "ok", "service": "fraudguard-api"}
+    return {
+        "status": "ok",
+        "service": "fraudguard-api",
+        "engine_version": ENGINE_VERSION,
+    }

@@ -1,9 +1,10 @@
-﻿"""
-FraudGuard Scoring Engine
+"""
+FraudGuard Scoring Engine v1.2.0
 Rule-based fraud detection with weighted signal normalization.
 """
 from app.models.schemas import ScoreRequest, SignalDetail, RiskLevel, Action
 
+ENGINE_VERSION = "v1.2.0"
 
 SIGNALS = [
     {
@@ -59,7 +60,7 @@ SIGNALS = [
     },
     {
         "name": "dest_had_zero_balance",
-        "reason": "destination account had zero balance",
+        "reason": "destination account previously had zero balance",
         "weight": 10,
         "check": lambda r: (
             r.dest_balance_before == 0
@@ -102,7 +103,6 @@ def compute_score(request: ScoreRequest) -> tuple[int, list[SignalDetail], list[
     total_weight = sum(s["weight"] for s in active)
     raw_score = sum((s["weight"] / total_weight) * 100 for s in active)
 
-    # Multiplier for stacked critical signals
     if len([s for s in active if s["weight"] >= 22]) >= 2:
         raw_score = min(raw_score * 1.15, 99)
 
@@ -123,13 +123,9 @@ def compute_score(request: ScoreRequest) -> tuple[int, list[SignalDetail], list[
         for s in sorted(active, key=lambda x: x["weight"], reverse=True)[:5]
     ]
 
-    # confidence_score: normalized 0.0–1.0
-    # weighted by signal count + top signal strength
     top_weight = active[0]["weight"] if active else 0
     confidence_score = round(
         min(1.0, (score / 100) * 0.7 + (top_weight / 38) * 0.3), 2
     )
 
     return score, signals, reasons, confidence_score
-
-
