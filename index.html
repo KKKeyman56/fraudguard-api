@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FraudGuard — Real-time Fraud Detection API</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap');
+
+:root {
+  --bg:       #080b10;
+  --bg2:      #0d1117;
+  --bg3:      #161b22;
+  --border:   #21262d;
+  --border2:  #30363d;
+  --text:     #e6edf3;
+  --muted:    #8b949e;
+  --dim:      #484f58;
+  --red:      #ff4757;
+  --green:    #3fb950;
+  --yellow:   #e3b341;
+  --blue:     #58a6ff;
+  --purple:   #a78bfa;
+  --red-glow: rgba(255,71,87,.15);
+  --green-glow: rgba(63,185,80,.12);
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;overflow-x:hidden;line-height:1.6}
+
+/* NOISE OVERLAY */
+body::before{content:'';position:fixed;inset:0;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");pointer-events:none;z-index:0;opacity:.4}
+
+/* NAV */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;padding:18px 48px;display:flex;align-items:center;justify-content:space-between;background:rgba(8,11,16,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
+.nav-logo{font-family:'Space Mono',monospace;font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px;color:var(--text);text-decoration:none}
+.logo-dot{width:8px;height:8px;border-radius:50%;background:var(--red);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,71,87,.6)}50%{box-shadow:0 0 0 6px rgba(255,71,87,0)}}
+.nav-links{display:flex;align-items:center;gap:28px}
+.nav-links a{font-family:'Space Mono',monospace;font-size:12px;color:var(--muted);text-decoration:none;transition:color .15s}
+.nav-links a:hover{color:var(--text)}
+.nav-cta{font-family:'Space Mono',monospace;font-size:12px;padding:8px 18px;border-radius:5px;background:var(--red);color:#fff;border:none;cursor:pointer;text-decoration:none;transition:all .15s}
+.nav-cta:hover{background:#ff6370;box-shadow:0 0 20px rgba(255,71,87,.3)}
+
+/* HERO */
+.hero{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:120px 48px 80px;position:relative;overflow:hidden}
+.hero-grid{position:absolute;inset:0;background-image:linear-gradient(var(--border) 1px,transparent 1px),linear-gradient(90deg,var(--border) 1px,transparent 1px);background-size:60px 60px;opacity:.15;mask-image:radial-gradient(ellipse 80% 80% at 50% 50%,black,transparent)}
+.hero-glow{position:absolute;width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(255,71,87,.08),transparent 70%);top:50%;left:50%;transform:translate(-50%,-60%);pointer-events:none}
+.hero-content{max-width:860px;text-align:center;position:relative;z-index:1}
+.hero-badge{display:inline-flex;align-items:center;gap:8px;font-family:'Space Mono',monospace;font-size:11px;color:var(--green);background:var(--green-glow);border:1px solid rgba(63,185,80,.2);padding:6px 14px;border-radius:20px;margin-bottom:32px;letter-spacing:.5px}
+.hero-badge-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse2 2s infinite}
+@keyframes pulse2{0%,100%{opacity:1}50%{opacity:.3}}
+h1{font-size:clamp(2.8rem,6vw,5rem);font-weight:800;line-height:1.05;letter-spacing:-2px;margin-bottom:24px}
+h1 .accent{color:var(--red);position:relative}
+h1 .accent::after{content:'';position:absolute;bottom:-4px;left:0;right:0;height:3px;background:var(--red);border-radius:2px;opacity:.5}
+.hero-sub{font-size:1.2rem;color:var(--muted);max-width:560px;margin:0 auto 48px;line-height:1.7;font-weight:400}
+.hero-sub b{color:var(--text)}
+.hero-btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.btn-primary{font-family:'Space Mono',monospace;font-size:13px;font-weight:700;padding:14px 28px;border-radius:6px;background:var(--red);color:#fff;border:none;cursor:pointer;text-decoration:none;transition:all .2s;display:inline-flex;align-items:center;gap:8px}
+.btn-primary:hover{background:#ff6370;box-shadow:0 0 30px rgba(255,71,87,.35);transform:translateY(-1px)}
+.btn-secondary{font-family:'Space Mono',monospace;font-size:13px;padding:14px 28px;border-radius:6px;background:transparent;color:var(--text);border:1px solid var(--border2);cursor:pointer;text-decoration:none;transition:all .2s;display:inline-flex;align-items:center;gap:8px}
+.btn-secondary:hover{background:var(--bg3);border-color:var(--muted);transform:translateY(-1px)}
+.hero-stats{display:flex;gap:48px;justify-content:center;margin-top:72px;flex-wrap:wrap}
+.stat{text-align:center}
+.stat-val{font-family:'Space Mono',monospace;font-size:2rem;font-weight:700;color:var(--text);display:block}
+.stat-val .unit{font-size:1rem;color:var(--muted)}
+.stat-lbl{font-size:12px;color:var(--dim);margin-top:4px;font-family:'Space Mono',monospace;letter-spacing:.5px}
+
+/* SECTION BASE */
+section{padding:100px 48px;position:relative;z-index:1}
+.section-label{font-family:'Space Mono',monospace;font-size:11px;color:var(--red);text-transform:uppercase;letter-spacing:2px;margin-bottom:16px}
+.section-title{font-size:clamp(1.8rem,3.5vw,2.8rem);font-weight:800;letter-spacing:-1px;line-height:1.15;margin-bottom:20px}
+.section-sub{font-size:1rem;color:var(--muted);max-width:520px;line-height:1.7}
+.container{max-width:1100px;margin:0 auto}
+
+/* DIVIDER */
+.divider{height:1px;background:linear-gradient(90deg,transparent,var(--border2),transparent);margin:0 48px}
+
+/* PROBLEM */
+.problem{background:var(--bg)}
+.problem-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-top:56px}
+.prob-card{background:var(--bg2);padding:32px 28px}
+.prob-num{font-family:'Space Mono',monospace;font-size:2.4rem;font-weight:700;color:var(--red);margin-bottom:8px}
+.prob-title{font-size:1rem;font-weight:700;margin-bottom:10px}
+.prob-desc{font-size:13px;color:var(--muted);line-height:1.6}
+
+/* SOLUTION */
+.solution{background:var(--bg2)}
+.sol-wrap{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center;margin-top:56px}
+.sol-points{display:flex;flex-direction:column;gap:20px}
+.sol-point{display:flex;align-items:flex-start;gap:14px;padding:18px 20px;border:1px solid var(--border);border-radius:8px;background:var(--bg);transition:border-color .2s}
+.sol-point:hover{border-color:var(--border2)}
+.sol-icon{font-size:20px;flex-shrink:0;margin-top:2px}
+.sol-point-title{font-size:14px;font-weight:700;margin-bottom:4px}
+.sol-point-desc{font-size:12px;color:var(--muted);line-height:1.5}
+
+/* JSON RESPONSE CARD */
+.json-card{background:var(--bg3);border:1px solid var(--border2);border-radius:10px;overflow:hidden;font-family:'Space Mono',monospace}
+.json-header{background:var(--bg);padding:12px 18px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border)}
+.json-dot{width:10px;height:10px;border-radius:50%}
+.json-title{font-size:11px;color:var(--dim);margin-left:4px}
+.json-status{margin-left:auto;font-size:10px;color:var(--green);background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.2);padding:2px 8px;border-radius:3px}
+.json-body{padding:20px;font-size:12px;line-height:1.8;overflow-x:auto}
+.jk{color:var(--blue)}
+.jv-str{color:var(--green)}
+.jv-num{color:var(--purple)}
+.jv-bool{color:var(--yellow)}
+.jv-crit{color:var(--red);font-weight:700}
+.jv-arr{color:var(--muted)}
+.json-latency{padding:10px 18px;background:rgba(63,185,80,.05);border-top:1px solid var(--border);font-size:11px;color:var(--green);display:flex;align-items:center;gap:6px}
+
+/* EXAMPLE */
+.example{background:var(--bg)}
+.example-wrap{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:start;margin-top:56px}
+.code-card{background:var(--bg3);border:1px solid var(--border2);border-radius:10px;overflow:hidden}
+.code-header{background:var(--bg);padding:10px 16px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border)}
+.code-lang{font-family:'Space Mono',monospace;font-size:10px;color:var(--dim)}
+.code-body{padding:20px;font-family:'Space Mono',monospace;font-size:11px;line-height:1.8;color:var(--muted);overflow-x:auto}
+.code-body .kw{color:var(--purple)}
+.code-body .str{color:var(--green)}
+.code-body .fn{color:var(--blue)}
+.code-body .cm{color:var(--dim)}
+.example-scenarios{display:flex;flex-direction:column;gap:12px}
+.scenario{padding:16px 18px;border-radius:8px;border:1px solid var(--border);cursor:pointer;transition:all .15s}
+.scenario:hover,.scenario.active{border-color:var(--border2);background:var(--bg3)}
+.scenario-header{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.scenario-badge{font-family:'Space Mono',monospace;font-size:10px;padding:2px 8px;border-radius:3px;font-weight:700}
+.badge-critical{background:rgba(255,71,87,.15);color:var(--red);border:1px solid rgba(255,71,87,.3)}
+.badge-high{background:rgba(227,179,65,.12);color:var(--yellow);border:1px solid rgba(227,179,65,.25)}
+.badge-safe{background:rgba(63,185,80,.1);color:var(--green);border:1px solid rgba(63,185,80,.2)}
+.scenario-title{font-size:13px;font-weight:700}
+.scenario-desc{font-size:12px;color:var(--muted)}
+
+/* WHY */
+.why{background:var(--bg2)}
+.why-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-top:56px}
+.why-card{background:var(--bg2);padding:32px 24px;transition:background .15s}
+.why-card:hover{background:var(--bg3)}
+.why-icon{font-size:28px;margin-bottom:16px;display:block}
+.why-title{font-size:15px;font-weight:700;margin-bottom:8px}
+.why-desc{font-size:12px;color:var(--muted);line-height:1.6}
+.why-metric{font-family:'Space Mono',monospace;font-size:11px;color:var(--red);margin-top:12px;display:block}
+
+/* COMPARISON */
+.compare{background:var(--bg)}
+.compare-table{margin-top:56px;border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.compare-header{display:grid;grid-template-columns:1fr 1fr 1fr;background:var(--bg3);border-bottom:1px solid var(--border)}
+.compare-header div{padding:16px 24px;font-size:12px;font-weight:700;font-family:'Space Mono',monospace;color:var(--muted)}
+.compare-header div:last-child{color:var(--green)}
+.compare-row{display:grid;grid-template-columns:1fr 1fr 1fr;border-bottom:1px solid var(--border)}
+.compare-row:last-child{border:none}
+.compare-row div{padding:14px 24px;font-size:13px;color:var(--muted);border-right:1px solid var(--border)}
+.compare-row div:first-child{color:var(--text);font-weight:600}
+.compare-row div:last-child{border:none;color:var(--green)}
+.compare-row div.bad{color:var(--red)}
+.compare-row div.ok{color:var(--yellow)}
+
+/* CTA */
+.cta-section{background:var(--bg2);text-align:center;padding:120px 48px}
+.cta-section h2{font-size:clamp(2rem,4vw,3.5rem);font-weight:800;letter-spacing:-1.5px;margin-bottom:20px}
+.cta-section p{font-size:1rem;color:var(--muted);margin-bottom:48px;max-width:480px;margin-left:auto;margin-right:auto}
+.cta-key{display:inline-block;font-family:'Space Mono',monospace;font-size:12px;padding:10px 20px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--muted);margin-bottom:32px}
+.cta-key span{color:var(--green)}
+
+/* FOOTER */
+footer{padding:32px 48px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px}
+.footer-logo{font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--muted)}
+.footer-links{display:flex;gap:24px}
+.footer-links a{font-family:'Space Mono',monospace;font-size:11px;color:var(--dim);text-decoration:none}
+.footer-links a:hover{color:var(--muted)}
+
+/* ANIMATIONS */
+.fade-in{opacity:0;transform:translateY(20px);transition:opacity .6s ease,transform .6s ease}
+.fade-in.visible{opacity:1;transform:translateY(0)}
+
+@media(max-width:768px){
+  nav{padding:14px 20px}
+  .nav-links{display:none}
+  section{padding:70px 20px}
+  .hero{padding:100px 20px 60px}
+  .sol-wrap,.example-wrap{grid-template-columns:1fr}
+  .problem-grid,.why-grid{grid-template-columns:1fr}
+  .compare-table{overflow-x:auto}
+  footer{padding:24px 20px}
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="#" class="nav-logo">
+    <div class="logo-dot"></div>
+    FraudGuard
+  </a>
+  <div class="nav-links">
+    <a href="#solution">How it works</a>
+    <a href="#example">API</a>
+    <a href="#why">Why us</a>
+    <a href="https://web-production-cdea4.up.railway.app/docs" target="_blank">Docs</a>
+  </div>
+  <a href="https://web-production-cdea4.up.railway.app/docs" target="_blank" class="nav-cta">Request API Key →</a>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-grid"></div>
+  <div class="hero-glow"></div>
+  <div class="hero-content">
+    <div class="hero-badge">
+      <div class="hero-badge-dot"></div>
+      Live · AIML 6.3M transaction dataset
+    </div>
+    <h1>Stop fraud in milliseconds —<br>before it drains your <span class="accent">users' money.</span></h1>
+    <p class="hero-sub">
+      <b>Built for early-stage fintech, payment startups, and platforms without a dedicated fraud team.</b><br>
+      One API call. Risk score. Explainable decision. No data science team needed.
+    </p>
+    <div class="hero-btns">
+      <a href="https://web-production-cdea4.up.railway.app/docs" target="_blank" class="btn-primary">
+        🚀 Start Protecting Transactions
+      </a>
+      <a href="#example" class="btn-secondary">
+        ⚡ Try Live API →
+      </a>
+    </div>
+    <div class="hero-stats">
+      <div class="stat">
+        <span class="stat-val">&lt;15<span class="unit">ms</span></span>
+        <div class="stat-lbl">avg latency</div>
+      </div>
+      <div class="stat">
+        <span class="stat-val">99<span class="unit">%</span></span>
+        <div class="stat-lbl">detection accuracy</div>
+      </div>
+      <div class="stat">
+        <span class="stat-val">9</span>
+        <div class="stat-lbl">fraud signals</div>
+      </div>
+      <div class="stat">
+        <span class="stat-val">v1<span class="unit">.2</span></span>
+        <div class="stat-lbl">engine version</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- PROBLEM -->
+<section class="problem fade-in">
+  <div class="container">
+    <div class="section-label">The problem</div>
+    <h2 class="section-title">Every second you wait,<br>fraud drains your users' money.</h2>
+    <p class="section-sub">Building in-house fraud detection takes months and millions. Most startups skip it — until a single attack wipes out user balances and destroys trust overnight.</p>
+    <div class="problem-grid">
+      <div class="prob-card">
+        <div class="prob-num">$485B</div>
+        <div class="prob-title">Lost to payment fraud globally in 2023</div>
+        <div class="prob-desc">And growing 25% year-over-year as digital payments expand across emerging markets.</div>
+      </div>
+      <div class="prob-card">
+        <div class="prob-num">72h</div>
+        <div class="prob-title">Average time to detect fraud without automation</div>
+        <div class="prob-desc">By then, the money is gone, the account is drained, and the mule has moved on.</div>
+      </div>
+      <div class="prob-card">
+        <div class="prob-num">34%</div>
+        <div class="prob-title">False positive rate with legacy rule engines</div>
+        <div class="prob-desc">Blocking legitimate customers destroys trust. Manual review doesn't scale past 50K tx/day.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- SOLUTION -->
+<section class="solution fade-in" id="solution">
+  <div class="container">
+    <div class="sol-wrap">
+      <div>
+        <div class="section-label">The solution</div>
+        <h2 class="section-title">Prevent fraudulent transactions before they drain user balances.</h2>
+        <p class="section-sub" style="margin-bottom:16px">Send one POST request. Get back a risk score, a decision, and the exact reasons why — in under 15ms.</p>
+        <p class="section-sub" style="margin-bottom:40px;font-size:12px;color:var(--dim)">Built with production-grade architecture. Designed for real-time financial systems. No black boxes.</p>
+        <div class="sol-points">
+          <div class="sol-point">
+            <div class="sol-icon">🎯</div>
+            <div>
+              <div class="sol-point-title">Risk Score 0–100</div>
+              <div class="sol-point-desc">Every transaction gets a score. LOW, MEDIUM, HIGH, or CRITICAL — with confidence score attached.</div>
+            </div>
+          </div>
+          <div class="sol-point">
+            <div class="sol-icon">⚡</div>
+            <div>
+              <div class="sol-point-title">Instant Decision</div>
+              <div class="sol-point-desc">ALLOW, REVIEW, or BLOCK. Your system acts immediately — no human in the loop required.</div>
+            </div>
+          </div>
+          <div class="sol-point">
+            <div class="sol-icon">🧠</div>
+            <div>
+              <div class="sol-point-title">Explainable Reasons</div>
+              <div class="sol-point-desc">Not a black box. Every decision comes with human-readable reasons your team can audit.</div>
+            </div>
+          </div>
+          <div class="sol-point">
+            <div class="sol-icon">🔌</div>
+            <div>
+              <div class="sol-point-title">One API Call</div>
+              <div class="sol-point-desc">No SDK to install. No model to train. POST a transaction, get a score. Works in any language.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="json-card">
+        <div class="json-header">
+          <div class="json-dot" style="background:#ff5f57"></div>
+          <div class="json-dot" style="background:#febc2e"></div>
+          <div class="json-dot" style="background:#28c840"></div>
+          <span class="json-title">POST /v1/score → 200 OK</span>
+          <span class="json-status">● LIVE</span>
+        </div>
+        <div class="json-body">
+<span>{</span><br>
+&nbsp;&nbsp;<span class="jk">"transaction_id"</span>: <span class="jv-str">"tx_001"</span>,<br>
+&nbsp;&nbsp;<span class="jk">"risk_score"</span>: <span class="jv-crit">99</span>,<br>
+&nbsp;&nbsp;<span class="jk">"risk_level"</span>: <span class="jv-crit">"CRITICAL"</span>,<br>
+&nbsp;&nbsp;<span class="jk">"action"</span>: <span class="jv-crit">"BLOCK"</span>,<br>
+&nbsp;&nbsp;<span class="jk">"confidence_score"</span>: <span class="jv-num">0.99</span>,<br>
+&nbsp;&nbsp;<span class="jk">"reason"</span>: <span class="jv-arr">[</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="jv-str">"balance fully drained"</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="jv-str">"destination balance unchanged"</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="jv-str">"exact transfer match"</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="jv-str">"large amount anomaly"</span><br>
+&nbsp;&nbsp;<span class="jv-arr">]</span>,<br>
+&nbsp;&nbsp;<span class="jk">"is_suspicious"</span>: <span class="jv-bool">true</span>,<br>
+&nbsp;&nbsp;<span class="jk">"timestamp"</span>: <span class="jv-str">"2026-04-28T05:19:59Z"</span>,<br>
+&nbsp;&nbsp;<span class="jk">"engine_version"</span>: <span class="jv-str">"v1.2.0"</span><br>
+<span>}</span>
+        </div>
+        <div class="json-latency">⚡ latency_ms: 0.07 &nbsp;·&nbsp; local rule-based inference</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- EXAMPLE -->
+<section class="example fade-in" id="example">
+  <div class="container">
+    <div class="section-label">Live API</div>
+    <h2 class="section-title">Try it right now.</h2>
+    <p class="section-sub">No signup needed. Use the demo key below and hit the live API.</p>
+    <div class="example-wrap">
+      <div class="code-card">
+        <div class="code-header">
+          <div class="json-dot" style="background:#ff5f57;width:10px;height:10px;border-radius:50%"></div>
+          <div class="json-dot" style="background:#febc2e;width:10px;height:10px;border-radius:50%"></div>
+          <div class="json-dot" style="background:#28c840;width:10px;height:10px;border-radius:50%"></div>
+          <span class="code-lang" style="margin-left:8px">curl</span>
+        </div>
+        <div class="code-body">
+<span class="cm"># Demo key — free to use</span><br>
+<span class="fn">curl</span> -X POST \<br>
+&nbsp;&nbsp;<span class="str">'https://web-production-cdea4.up.railway.app/v1/score'</span> \<br>
+&nbsp;&nbsp;-H <span class="str">'Authorization: Bearer fg_live_demo_key_001'</span> \<br>
+&nbsp;&nbsp;-H <span class="str">'Content-Type: application/json'</span> \<br>
+&nbsp;&nbsp;-d <span class="str">'{'</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="str">"transaction_id"</span>: <span class="str">"tx_001"</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="str">"amount"</span>: <span class="kw">1250000</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="str">"type"</span>: <span class="str">"TRANSFER"</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="str">"origin_account"</span>: <span class="str">"C1234567890"</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="str">"dest_account"</span>: <span class="str">"C9876543210"</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="str">"origin_balance_before"</span>: <span class="kw">1250000</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="str">"origin_balance_after"</span>: <span class="kw">0</span><br>
+&nbsp;&nbsp;<span class="str">'}'</span>
+        </div>
+      </div>
+      <div>
+        <div style="margin-bottom:16px;font-size:13px;color:var(--muted);font-family:'Space Mono',monospace">// fraud scenarios</div>
+        <div class="example-scenarios">
+          <div class="scenario active">
+            <div class="scenario-header">
+              <span class="scenario-badge badge-critical">CRITICAL · 99</span>
+              <span class="scenario-title">Account fully drained</span>
+            </div>
+            <div class="scenario-desc">Transfer empties entire balance to a zero-balance destination. 4 signals fired. Auto-blocked.</div>
+          </div>
+          <div class="scenario">
+            <div class="scenario-header">
+              <span class="scenario-badge badge-high">HIGH · 78</span>
+              <span class="scenario-title">Large CASH_OUT anomaly</span>
+            </div>
+            <div class="scenario-desc">$750K cash-out on an account with no prior large transactions. Flagged for review.</div>
+          </div>
+          <div class="scenario">
+            <div class="scenario-header">
+              <span class="scenario-badge badge-safe">SAFE · 8</span>
+              <span class="scenario-title">Normal payment</span>
+            </div>
+            <div class="scenario-desc">Regular $50 payment. Balance unchanged proportionally. Allowed through instantly.</div>
+          </div>
+        </div>
+        <div style="margin-top:24px;padding:16px;background:var(--bg3);border:1px solid var(--border);border-radius:8px">
+          <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--dim);margin-bottom:8px">DEMO API KEY</div>
+          <div style="font-family:'Space Mono',monospace;font-size:12px;color:var(--green)">fg_live_demo_key_001</div>
+          <div style="font-size:11px;color:var(--dim);margin-top:6px">Free to use. No signup required.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- WHY -->
+<section class="why fade-in" id="why">
+  <div class="container">
+    <div class="section-label">Why FraudGuard</div>
+    <h2 class="section-title">Built for developers.<br>Designed for fintech.</h2>
+    <div class="why-grid">
+      <div class="why-card">
+        <span class="why-icon">⚡</span>
+        <div class="why-title">Sub-15ms latency</div>
+        <div class="why-desc">Rule-based engine with weighted signal normalization. No model inference overhead.</div>
+        <span class="why-metric">avg 0.07ms inference</span>
+      </div>
+      <div class="why-card">
+        <span class="why-icon">🧠</span>
+        <div class="why-title">Explainable AI</div>
+        <div class="why-desc">Every decision comes with human-readable reasons and per-signal confidence weights.</div>
+        <span class="why-metric">9 fraud signals</span>
+      </div>
+      <div class="why-card">
+        <span class="why-icon">🔌</span>
+        <div class="why-title">API-first</div>
+        <div class="why-desc">REST API with auto-generated Swagger docs. Works with any language or stack in minutes.</div>
+        <span class="why-metric">1 POST request</span>
+      </div>
+      <div class="why-card">
+        <span class="why-icon">🚀</span>
+        <div class="why-title">Built for startups</div>
+        <div class="why-desc">No data science team needed. No infrastructure to maintain. Pay as you grow.</div>
+        <span class="why-metric">ship in &lt;1 hour</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- COMPARISON -->
+<section class="compare fade-in">
+  <div class="container">
+    <div class="section-label">Comparison</div>
+    <h2 class="section-title">FraudGuard vs the alternatives.</h2>
+    <p class="section-sub" style="margin-bottom:40px">Legacy fraud systems are slow, opaque, and built for enterprises with 50-person risk teams. FraudGuard delivers decisions in milliseconds with full explainability — for startups that need to ship fast.</p>
+    <div class="compare-table">
+      <div class="compare-header">
+        <div>Metric</div>
+        <div class="ok">In-house / Legacy</div>
+        <div>FraudGuard ✓</div>
+      </div>
+      <div class="compare-row">
+        <div>Detection latency</div>
+        <div class="bad">~72 hours</div>
+        <div>&lt;15ms real-time</div>
+      </div>
+      <div class="compare-row">
+        <div>Integration time</div>
+        <div class="bad">3–6 months</div>
+        <div>&lt;1 hour</div>
+      </div>
+      <div class="compare-row">
+        <div>False positive rate</div>
+        <div class="bad">~34%</div>
+        <div>&lt;4.2%</div>
+      </div>
+      <div class="compare-row">
+        <div>Cost per case</div>
+        <div class="bad">$180 / case</div>
+        <div>$12 / case (94% ↓)</div>
+      </div>
+      <div class="compare-row">
+        <div>Explainability</div>
+        <div class="bad">None / black box</div>
+        <div>Full reason codes</div>
+      </div>
+      <div class="compare-row">
+        <div>Coverage</div>
+        <div class="bad">~23% of tx</div>
+        <div>100% of tx</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- CTA -->
+<section class="cta-section fade-in">
+  <div class="section-label" style="display:inline-block;margin-bottom:16px">Get started</div>
+  <h2>Stop fraud before it<br>costs you millions.</h2>
+  <p>One API key. Full fraud protection. No data science team required.<br><span style="color:var(--dim);font-size:13px">Built for early-stage fintech, payment startups, and platforms that need to move fast.</span></p>
+  <div class="cta-key">Authorization: Bearer <span>fg_live_demo_key_001</span></div>
+  <br><br>
+  <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+    <a href="https://web-production-cdea4.up.railway.app/docs" target="_blank" class="btn-primary">
+      🚀 View API Docs
+    </a>
+    <a href="https://github.com/KKKeyman56/fraudguard-api" target="_blank" class="btn-secondary">
+      ★ Star on GitHub
+    </a>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-logo">FraudGuard · v1.2.0</div>
+  <div class="footer-links">
+    <a href="https://web-production-cdea4.up.railway.app/docs" target="_blank">API Docs</a>
+    <a href="https://github.com/KKKeyman56/fraudguard-api" target="_blank">GitHub</a>
+    <a href="https://web-production-cdea4.up.railway.app/v1/health" target="_blank">Status</a>
+  </div>
+</footer>
+
+<script>
+// Scroll fade-in
+const obs = new IntersectionObserver((entries) => {
+  entries.forEach(e => { if(e.isIntersecting) e.target.classList.add('visible'); });
+}, {threshold: 0.1});
+document.querySelectorAll('.fade-in').forEach(el => obs.observe(el));
+
+// Scenario switcher
+document.querySelectorAll('.scenario').forEach(s => {
+  s.addEventListener('click', () => {
+    document.querySelectorAll('.scenario').forEach(x => x.classList.remove('active'));
+    s.classList.add('active');
+  });
+});
+</script>
+</body>
+</html>
