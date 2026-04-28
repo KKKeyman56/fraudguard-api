@@ -1,16 +1,15 @@
-"""
-API Key management endpoints.
-"""
-from fastapi import APIRouter, HTTPException, status, Depends
-from pydantic import BaseModel, EmailStr, Field
-from app.core.database import get_db
+import os
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel, Field
+from app.core.database import query_one, execute
 from app.core.auth import generate_api_key, verify_api_key
 from datetime import datetime
 
 router = APIRouter()
+USE_POSTGRES = bool(os.getenv("DATABASE_URL"))
+PH = "%s" if USE_POSTGRES else "?"
 
 
-# ── REQUEST/RESPONSE MODELS ───────────────────────────────────────
 class KeyRequest(BaseModel):
     email: str = Field(..., example="you@startup.com")
     client_name: str = Field(..., example="MyStartup", min_length=2, max_length=60)
@@ -34,90 +33,34 @@ class KeyInfo(BaseModel):
     is_active: bool
 
 
-# ── ENDPOINTS ─────────────────────────────────────────────────────
-@router.post(
-    "/keys/request",
-    response_model=KeyResponse,
-    summary="Request a new API key",
-    description="""
-Generate a new API key for your application.
-
-**Free plan includes:**
-- 1,000 requests/day
-- Full access to `/v1/score`
-- Real-time risk scoring
-
-**Save your API key** — it won't be shown again.
-
-```json
-{
-  "email": "you@startup.com",
-  "client_name": "MyStartup"
-}
-```
-    """,
-    tags=["API Keys"],
-)
+@router.post("/keys/request", response_model=KeyResponse, summary="Request a new API key", tags=["API Keys"])
 async def request_api_key(body: KeyRequest):
-    conn = get_db()
-
-    # Check if email already has a key
-    existing = conn.execute(
-        "SELECT key, is_active FROM api_keys WHERE email = ?", (body.email,)
-    ).fetchone()
-
+    existing = query_one(f"SELECT key, is_active FROM api_keys WHERE email = {PH}", (body.email,))
     if existing:
-        conn.close()
         if existing["is_active"]:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"An API key already exists for {body.email}. Use GET /v1/keys/lookup to retrieve it.",
-            )
+            raise HTTPException(status_code=409, detail=f"API key already exists for {body.email}.")
         else:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="This email's API key has been deactivated. Contact support.",
-            )
+            raise HTTPException(status_code=403, detail="This email's API key has been deactivated.")
 
     new_key = generate_api_key()
     now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    conn.execute(
-        "INSERT INTO api_keys (key, email, client_name, plan, created_at) VALUES (?, ?, ?, 'free', ?)",
-        (new_key, body.email, body.client_name, now),
+    execute(
+        f"INSERT INTO api_keys (key, email, client_name, plan, created_at) VALUES ({PH},{PH},{PH},'free',{PH})",
+        (new_key, body.email, body.client_name, now)
     )
-    conn.commit()
-    conn.close()
 
     return KeyResponse(
-        api_key=new_key,
-        email=body.email,
-        client_name=body.client_name,
-        plan="free",
-        created_at=now,
-        message="API key created. Save it — it won't be shown again.",
+        api_key=new_key, email=body.email, client_name=body.client_name,
+        plan="free", created_at=now,
+        message="API key created. Save it - it won't be shown again.",
     )
 
 
-@router.get(
-    "/keys/me",
-    response_model=KeyInfo,
-    summary="Get your API key info",
-    description="Returns usage stats and info for the authenticated API key.",
-    tags=["API Keys"],
-)
+@router.get("/keys/me", response_model=KeyInfo, summary="Get your API key info", tags=["API Keys"])
 async def get_key_info(client: dict = Depends(verify_api_key)):
-    conn = get_db()
-    row = conn.execute(
-        "SELECT * FROM api_keys WHERE email = ?", (client["email"],)
-    ).fetchone()
-    conn.close()
-
+    row = query_one(f"SELECT * FROM api_keys WHERE email = {PH}", (client["email"],))
     return KeyInfo(
-        email=row["email"],
-        client_name=row["client_name"],
-        plan=row["plan"],
-        created_at=row["created_at"],
-        request_count=row["request_count"],
+        email=row["email"], client_name=row["client_name"], plan=row["plan"],
+        created_at=row["created_at"], request_count=row["request_count"],
         is_active=bool(row["is_active"]),
     )
