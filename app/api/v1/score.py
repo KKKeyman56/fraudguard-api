@@ -42,7 +42,7 @@ async def score_transaction(
 ):
     t0 = time.perf_counter()
 
-    score, signals = compute_score(request)
+    score, signals, reasons, confidence_score = compute_score(request)
     verdict, action = get_verdict(score)
 
     latency_ms = round((time.perf_counter() - t0) * 1000, 2)
