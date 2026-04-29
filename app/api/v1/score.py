@@ -1,8 +1,10 @@
 import time
-from fastapi import APIRouter, Depends
-from app.models.schemas import ScoreRequest, ScoreResponse, ErrorResponse
+from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, Response
+from app.models.schemas import ScoreRequest, ScoreResponse, ErrorResponse, RiskLevel
 from app.services.scorer import compute_score, get_risk_level, get_action, ENGINE_VERSION
 from app.core.auth import verify_api_key
+from app.core.rate_limit import check_rate_limit
 
 router = APIRouter()
 
@@ -12,57 +14,55 @@ router = APIRouter()
     response_model=ScoreResponse,
     summary="Score a transaction",
     description="""
-Submit a financial transaction → receive a fraud risk score in **⚡ < 15ms**.
+Submit a transaction and receive a fraud risk score in **⚡ < 15ms**.
 
-**What you get back:**
-- `risk_score` — 0 to 100
-- `verdict` — SAFE / WARNING / CRITICAL
-- `action` — ALLOW / REVIEW / BLOCK
-- `confidence` — every signal that fired, with weight + contribution %
-- `latency_ms` — actual processing time
-
-**Risk levels:**
-| Score | Verdict | Action |
-|-------|---------|--------|
-| 0–39 | `SAFE` | `ALLOW` |
-| 40–69 | `WARNING` | `REVIEW` |
-| 70–84 | `CRITICAL` | `REVIEW` |
-| 85–99 | `CRITICAL` | `BLOCK` |
+**Rate limits:**
+| Plan | Limit |
+|------|-------|
+| `free` | 1,000 req / day |
+| `pro` | 100,000 req / day |
 
 **Demo key:** `Bearer fg_live_demo_key_001`
     """,
     responses={
         401: {"model": ErrorResponse, "description": "Invalid or missing API key"},
-        422: {"description": "Validation error — check request body"},
+        429: {"description": "Rate limit exceeded"},
+        422: {"description": "Validation error"},
     },
 )
 async def score_transaction(
     request: ScoreRequest,
+    response: Response,
     client: dict = Depends(verify_api_key),
 ):
-    t0 = time.perf_counter()
+    usage = check_rate_limit(client.get("api_key", ""), client.get("plan", "free"))
 
+    t0 = time.perf_counter()
     score, signals, reasons, confidence_score = compute_score(request)
     risk_level = get_risk_level(score)
-action = get_action(score)
-
+    action = get_action(score)
     latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+
+    response.headers["X-RateLimit-Limit"] = str(usage["limit"])
+    response.headers["X-RateLimit-Remaining"] = str(usage["remaining"])
+    response.headers["X-RateLimit-Reset"] = "midnight UTC"
 
     return ScoreResponse(
         transaction_id=request.transaction_id,
+        idempotency_key=request.idempotency_key or None,
         risk_score=score,
-        verdict=verdict,
+        risk_level=risk_level,
         action=action,
+        confidence_score=confidence_score,
+        reason=reasons,
         confidence=signals,
+        is_suspicious=risk_level in (RiskLevel.MEDIUM, RiskLevel.HIGH, RiskLevel.CRITICAL),
+        timestamp=datetime.now(timezone.utc),
+        engine_version=ENGINE_VERSION,
         latency_ms=latency_ms,
-        flagged=score >= 40,
     )
 
 
-@router.get(
-    "/health",
-    summary="Health check",
-    include_in_schema=False,
-)
+@router.get("/health", include_in_schema=False)
 async def health():
-    return {"status": "ok", "service": "fraudguard-api"}
+    return {"status": "ok", "service": "fraudguard-api", "engine_version": ENGINE_VERSION}
