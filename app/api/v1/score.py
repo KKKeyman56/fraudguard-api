@@ -1,7 +1,7 @@
 import time
 from fastapi import APIRouter, Depends
 from app.models.schemas import ScoreRequest, ScoreResponse, ErrorResponse
-from app.services.scorer import compute_score, get_verdict
+from app.services.scorer import compute_score, get_risk_level, get_action, ENGINE_VERSION
 from app.core.auth import verify_api_key
 
 router = APIRouter()
