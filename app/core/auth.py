@@ -1,14 +1,14 @@
-"""
-API key authentication — database-backed.
-"""
+import os
 import secrets
 import string
-from fastapi import HTTPException, Security, status
+from fastapi import HTTPException, Security
 from fastapi.security import APIKeyHeader
 from app.core.config import settings
-from app.core.database import get_db
+from app.core.database import query_one, execute
 
 api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
+USE_POSTGRES = bool(os.getenv("DATABASE_URL"))
+PH = "%s" if USE_POSTGRES else "?"
 
 
 def generate_api_key() -> str:
@@ -19,35 +19,21 @@ def generate_api_key() -> str:
 
 async def verify_api_key(authorization: str = Security(api_key_header)) -> dict:
     if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Authorization header. Use: 'Bearer YOUR_API_KEY'",
-        )
+        raise HTTPException(status_code=401, detail="Missing Authorization header. Use: 'Bearer YOUR_API_KEY'")
     parts = authorization.split(" ")
     if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid format. Use: 'Bearer YOUR_API_KEY'",
-        )
+        raise HTTPException(status_code=401, detail="Invalid format. Use: 'Bearer YOUR_API_KEY'")
     key = parts[1]
 
-    conn = get_db()
-    row = conn.execute(
-        "SELECT * FROM api_keys WHERE key = ? AND is_active = 1", (key,)
-    ).fetchone()
-
+    row = query_one(f"SELECT * FROM api_keys WHERE key = {PH} AND is_active = 1", (key,))
     if not row:
-        conn.close()
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or inactive API key.",
-        )
+        raise HTTPException(status_code=401, detail="Invalid or inactive API key.")
 
-    # Increment request count
-    conn.execute(
-        "UPDATE api_keys SET request_count = request_count + 1 WHERE key = ?", (key,)
-    )
-    conn.commit()
-    conn.close()
+    execute(f"UPDATE api_keys SET request_count = request_count + 1 WHERE key = {PH}", (key,))
 
-    return {"client": row["client_name"], "email": row["email"], "plan": row["plan"]}
+    return {
+        "api_key": key,
+        "client": row["client_name"],
+        "email": row["email"],
+        "plan": row["plan"]
+    }
