@@ -478,10 +478,28 @@ async function checkUsage() {
     });
     const data = await res.json();
     if (res.ok) {
-      const pct = Math.min(Math.round((data.request_count / 1000) * 100), 100);
+      const pct = Math.min(Math.round((data.requests_today / (data.daily_limit || 1000)) * 100), 100);
       const color = pct > 80 ? 'var(--red)' : pct > 50 ? 'var(--yellow)' : 'var(--green)';
       result.style.display = 'block';
-      result.innerHTML = '<div style="background:rgba(88,166,255,.07);border:1px solid rgba(88,166,255,.2);border-radius:6px;padding:16px"><div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="font-family:monospace;font-size:11px;color:var(--dim)">CLIENT</span><span style="font-family:monospace;font-size:11px;color:var(--text)">' + data.client_name + '</span></div><div style="display:flex;justify-content:space-between;margin-bottom:8px"><span style="font-family:monospace;font-size:11px;color:var(--dim)">PLAN</span><span style="font-family:monospace;font-size:11px;color:var(--green)">' + data.plan.toUpperCase() + '</span></div><div style="display:flex;justify-content:space-between;margin-bottom:12px"><span style="font-family:monospace;font-size:11px;color:var(--dim)">TOTAL REQUESTS</span><span style="font-family:monospace;font-size:11px;color:var(--text)">' + data.request_count.toLocaleString() + '</span></div><div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + color + ';border-radius:3px"></div></div><div style="font-family:monospace;font-size:10px;color:var(--dim);margin-top:6px;text-align:right">' + pct + '% of daily limit used</div></div>';
+      const rows = [
+        ['CLIENT', data.client_name, 'var(--text)'],
+        ['PLAN', data.plan.toUpperCase(), 'var(--green)'],
+        ['TODAY', data.requests_today + ' / ' + data.daily_limit + ' req', color],
+        ['REMAINING', data.remaining_today + ' req left today', color],
+        ['ALL TIME', data.request_count.toLocaleString() + ' total', 'var(--muted)'],
+      ];
+      const rowsHtml = rows.map(function(r) {
+        return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">' +
+          '<span style="font-family:monospace;font-size:11px;color:var(--dim)">' + r[0] + '</span>' +
+          '<span style="font-family:monospace;font-size:11px;color:' + r[2] + '">' + r[1] + '</span>' +
+          '</div>';
+      }).join('');
+      result.innerHTML = '<div style="background:rgba(88,166,255,.07);border:1px solid rgba(88,166,255,.2);border-radius:6px;padding:16px">' +
+        rowsHtml +
+        '<div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-top:12px">' +
+        '<div style="height:100%;width:' + pct + '%;background:' + color + ';border-radius:3px"></div></div>' +
+        '<div style="font-family:monospace;font-size:10px;color:var(--dim);margin-top:6px;text-align:right">' + pct + '% of daily limit used</div>' +
+        '</div>';
       btn.textContent = 'Check Usage'; btn.disabled = false;
     } else {
       result.style.display = 'block';
