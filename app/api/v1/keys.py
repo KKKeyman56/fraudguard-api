@@ -1,9 +1,10 @@
 import os
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from app.core.database import query_one, execute
 from app.core.auth import generate_api_key, verify_api_key
-from datetime import datetime
+from app.core.rate_limit import PLAN_LIMITS
 
 router = APIRouter()
 USE_POSTGRES = bool(os.getenv("DATABASE_URL"))
@@ -30,6 +31,9 @@ class KeyInfo(BaseModel):
     plan: str
     created_at: str
     request_count: int
+    requests_today: int
+    daily_limit: int
+    remaining_today: int
     is_active: bool
 
 
@@ -43,7 +47,7 @@ async def request_api_key(body: KeyRequest):
             raise HTTPException(status_code=403, detail="This email's API key has been deactivated.")
 
     new_key = generate_api_key()
-    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     execute(
         f"INSERT INTO api_keys (key, email, client_name, plan, created_at) VALUES ({PH},{PH},{PH},'free',{PH})",
         (new_key, body.email, body.client_name, now)
@@ -56,11 +60,27 @@ async def request_api_key(body: KeyRequest):
     )
 
 
-@router.get("/keys/me", response_model=KeyInfo, summary="Get your API key info", tags=["API Keys"])
+@router.get("/keys/me", response_model=KeyInfo, summary="Get your API key info + daily usage", tags=["API Keys"])
 async def get_key_info(client: dict = Depends(verify_api_key)):
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
     row = query_one(f"SELECT * FROM api_keys WHERE email = {PH}", (client["email"],))
+    usage = query_one(
+        f"SELECT request_count FROM daily_usage WHERE api_key = {PH} AND usage_date = {PH}",
+        (client["api_key"], today)
+    )
+
+    requests_today = usage["request_count"] if usage else 0
+    limit = PLAN_LIMITS.get(row["plan"], 1000)
+
     return KeyInfo(
-        email=row["email"], client_name=row["client_name"], plan=row["plan"],
-        created_at=row["created_at"], request_count=row["request_count"],
+        email=row["email"],
+        client_name=row["client_name"],
+        plan=row["plan"],
+        created_at=row["created_at"],
+        request_count=row["request_count"],
+        requests_today=requests_today,
+        daily_limit=limit,
+        remaining_today=max(0, limit - requests_today),
         is_active=bool(row["is_active"]),
     )
