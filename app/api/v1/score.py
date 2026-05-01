@@ -1,4 +1,4 @@
-import time
+﻿import time
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Response
 from app.models.schemas import ScoreRequest, ScoreResponse, ErrorResponse, RiskLevel
@@ -8,36 +8,16 @@ from app.core.auth import verify_api_key
 from app.core.rate_limit import check_rate_limit
 
 router = APIRouter()
-
 ENGINE_VERSION_FULL = "v2.0.0-hybrid"
 
 
-@router.post(
-    "/score",
-    response_model=ScoreResponse,
-    summary="Score a transaction",
-    description="""
-Submit a transaction and receive a fraud risk score in **⚡ < 15ms**.
-
-**Hybrid scoring engine:**
-- `risk_score` — rule-based + XGBoost ML blend
-- `ml_score` — XGBoost ML score (TRANSFER & CASH_OUT)
-  - AUC-ROC: **0.9995** · Precision: **94.3%** · Recall: **99.7%**
-
-**Demo key:** `Bearer fg_live_demo_key_001`
-    """,
-    responses={
-        401: {"model": ErrorResponse, "description": "Invalid or missing API key"},
-        429: {"description": "Rate limit exceeded"},
-    },
-)
+@router.post("/score", response_model=ScoreResponse, summary="Score a transaction")
 async def score_transaction(
     request: ScoreRequest,
     response: Response,
     client: dict = Depends(verify_api_key),
 ):
     usage = check_rate_limit(client.get("api_key", ""), client.get("plan", "free"))
-
     t0 = time.perf_counter()
 
     score, signals, reasons, confidence_score = compute_score(request)
@@ -45,7 +25,7 @@ async def score_transaction(
     action = get_action(score)
 
     ml_result = ml_score(request)
-print(f"ML result: {ml_result}")
+    print(f"ML result: {ml_result}")
 
     if ml_result["ml_available"] and ml_result["ml_score"] is not None:
         ml_s = ml_result["ml_score"]
@@ -57,7 +37,6 @@ print(f"ML result: {ml_result}")
         final_score = score
 
     latency_ms = round((time.perf_counter() - t0) * 1000, 2)
-
     response.headers["X-RateLimit-Limit"] = str(usage["limit"])
     response.headers["X-RateLimit-Remaining"] = str(usage["remaining"])
     response.headers["X-RateLimit-Reset"] = "midnight UTC"
