@@ -26,7 +26,12 @@ def load_model():
                 _meta = json.load(f)
             print(f"ML model loaded: {_meta['version']} | AUC: {_meta['auc_roc']}")
         except Exception as e:
-            print(f"ML model not available: {e}")
+    import traceback
+    _booster = None
+    _meta = {}
+    _ml_ready = False
+    print(f"ML model not available: {e}")
+    print(f"Full error: {traceback.format_exc()}")
             _model = None
     return _model, _meta
 
