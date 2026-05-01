@@ -51,6 +51,8 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     init_db()
+    from app.services.ml_scorer import load_model
+    load_model()
 
 app.include_router(score.router, prefix="/v1", tags=["Scoring"])
 app.include_router(keys.router, prefix="/v1", tags=["API Keys"])
