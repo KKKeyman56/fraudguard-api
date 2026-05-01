@@ -13,9 +13,6 @@ FEATURES = [
     'amount_to_balance_ratio', 'type_encoded', 'is_large_amount', 'is_medium_amount', 'step'
 ]
 
-print(f"MODEL_PATH: {MODEL_PATH}")
-print(f"Model exists: {MODEL_PATH.exists()}")
-
 _booster = None
 _meta = {}
 _ml_ready = False
@@ -48,10 +45,10 @@ def extract_features(request):
         np.log1p(amt), np.log1p(old_o), drain,
         int(old_o > 0 and new_o == 0),
         int(abs(amt - old_o) < 1),
-        int(old_d == 0 and t == "TRANSFER"),
-        int(old_d == 0 and new_d == 0 and t == "TRANSFER"),
+        int("TRANSFER" in t),
+        int("TRANSFER" in t and old_d == 0 and new_d == 0),
         ratio,
-        int(t == "CASH_OUT"),
+        int("CASH_OUT" in t),
         int(amt > 1_000_000),
         int(500_000 <= amt <= 1_000_000),
         1,
@@ -60,12 +57,10 @@ def extract_features(request):
 
 
 def ml_score(request) -> dict:
-    print(f"ml_score called: _ml_ready={_ml_ready}, booster={_booster is not None}")
     if not _ml_ready or _booster is None:
         return {"ml_available": False, "ml_score": None, "ml_probability": None}
     req_type = str(request.type)
-    print(f"Request type: {req_type}")
-    if req_type not in ("TRANSFER", "CASH_OUT") and "TRANSFER" not in req_type and "CASH_OUT" not in req_type:
+    if "TRANSFER" not in req_type and "CASH_OUT" not in req_type:
         return {"ml_available": False, "ml_score": None, "ml_probability": None}
     try:
         df = extract_features(request)
