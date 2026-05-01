@@ -63,7 +63,9 @@ def ml_score(request) -> dict:
     print(f"ml_score called: _ml_ready={_ml_ready}, booster={_booster is not None}")
     if not _ml_ready or _booster is None:
         return {"ml_available": False, "ml_score": None, "ml_probability": None}
-    if str(request.type) not in ("TRANSFER", "CASH_OUT"):
+    req_type = str(request.type)
+    print(f"Request type: {req_type}")
+    if req_type not in ("TRANSFER", "CASH_OUT") and "TRANSFER" not in req_type and "CASH_OUT" not in req_type:
         return {"ml_available": False, "ml_score": None, "ml_probability": None}
     try:
         df = extract_features(request)
