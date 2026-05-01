@@ -45,6 +45,7 @@ async def score_transaction(
     action = get_action(score)
 
     ml_result = ml_score(request)
+print(f"ML result: {ml_result}")
 
     if ml_result["ml_available"] and ml_result["ml_score"] is not None:
         ml_s = ml_result["ml_score"]
