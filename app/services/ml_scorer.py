@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import xgboost as xgb
 from pathlib import Path
+from functools import lru_cache
 
 MODEL_PATH = Path(__file__).parent / "fraud_model.json"
 META_PATH  = Path(__file__).parent / "model_meta.json"
@@ -13,22 +14,23 @@ FEATURES = [
     'amount_to_balance_ratio', 'type_encoded', 'is_large_amount', 'is_medium_amount', 'step'
 ]
 
-try:
-    _booster = xgb.Booster()
-    _booster.load_model(str(MODEL_PATH))
-    with open(META_PATH) as f:
-        _meta = json.load(f)
-    _ml_ready = True
-    print(f"ML model loaded: {_meta['version']} | AUC: {_meta['auc_roc']}")
-except Exception as e:
-    _booster = None
-    _meta = {}
-    _ml_ready = False
-    print(f"ML model not available: {type(e).__name__}: {e}")
+
+@lru_cache(maxsize=1)
+def get_model():
+    try:
+        booster = xgb.Booster()
+        booster.load_model(str(MODEL_PATH))
+        with open(META_PATH) as f:
+            meta = json.load(f)
+        print(f"ML model loaded: {meta['version']} | AUC: {meta['auc_roc']}")
+        return booster, meta
+    except Exception as e:
+        print(f"ML model not available: {type(e).__name__}: {e}")
+        return None, {}
 
 
 def load_model():
-    return _booster, _meta
+    return get_model()
 
 
 def extract_features(request):
@@ -56,19 +58,20 @@ def extract_features(request):
 
 
 def ml_score(request) -> dict:
-    if not _ml_ready or _booster is None:
-        return {"ml_available": False, "ml_score": None, "ml_probability": None}
     if str(request.type) not in ("TRANSFER", "CASH_OUT"):
+        return {"ml_available": False, "ml_score": None, "ml_probability": None}
+    booster, meta = get_model()
+    if booster is None:
         return {"ml_available": False, "ml_score": None, "ml_probability": None}
     try:
         df = extract_features(request)
         dmat = xgb.DMatrix(df)
-        prob = float(_booster.predict(dmat)[0])
+        prob = float(booster.predict(dmat)[0])
         return {
             "ml_available": True,
             "ml_score": int(round(prob * 100)),
             "ml_probability": round(prob, 4),
-            "model_version": _meta.get("version", "v2.0.0"),
+            "model_version": meta.get("version", "v2.0.0"),
         }
     except Exception as e:
         print(f"ML scoring error: {e}")
