@@ -9,7 +9,7 @@ import json
 import numpy as np
 from pathlib import Path
 
-MODEL_PATH = Path(__file__).parent / "fraud_model.joblib"
+MODEL_PATH = Path(__file__).parent / "fraud_model.json"
 META_PATH  = Path(__file__).parent / "model_meta.json"
 
 # Load model at startup
