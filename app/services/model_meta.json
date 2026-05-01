@@ -1,0 +1,23 @@
+{
+  "features": [
+    "amount_log",
+    "orig_balance_log",
+    "balance_drain_pct",
+    "is_balance_drained",
+    "is_exact_transfer",
+    "dest_had_zero_balance",
+    "dest_balance_unchanged",
+    "amount_to_balance_ratio",
+    "type_encoded",
+    "is_large_amount",
+    "is_medium_amount",
+    "step"
+  ],
+  "auc_roc": 0.9995,
+  "precision": 0.9425,
+  "recall": 0.997,
+  "f1": 0.9689,
+  "version": "v2.0.0",
+  "algorithm": "XGBoost",
+  "trained_on": "AIML PaySim 6.3M transactions"
+}
