@@ -1,9 +1,10 @@
 ﻿import time
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Response, BackgroundTasks
 from app.models.schemas import ScoreRequest, ScoreResponse, ErrorResponse, RiskLevel
 from app.services.scorer import compute_score, get_risk_level, get_action, ENGINE_VERSION
 from app.services.ml_scorer import ml_score
+from app.services.webhook import fire_webhook
 from app.core.auth import verify_api_key
 from app.core.rate_limit import check_rate_limit
 
@@ -15,6 +16,7 @@ ENGINE_VERSION_FULL = "v2.0.0-hybrid"
 async def score_transaction(
     request: ScoreRequest,
     response: Response,
+    background_tasks: BackgroundTasks,
     client: dict = Depends(verify_api_key),
 ):
     usage = check_rate_limit(client.get("api_key", ""), client.get("plan", "free"))
@@ -23,7 +25,6 @@ async def score_transaction(
     score, signals, reasons, confidence_score = compute_score(request)
     risk_level = get_risk_level(score)
     action = get_action(score)
-
     ml_result = ml_score(request)
 
     if ml_result["ml_available"] and ml_result["ml_score"] is not None:
@@ -36,9 +37,23 @@ async def score_transaction(
         final_score = score
 
     latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+
     response.headers["X-RateLimit-Limit"] = str(usage["limit"])
     response.headers["X-RateLimit-Remaining"] = str(usage["remaining"])
     response.headers["X-RateLimit-Reset"] = "midnight UTC"
+
+    score_data = {
+        "transaction_id": request.transaction_id,
+        "risk_score": final_score,
+        "risk_level": risk_level.value,
+        "action": action.value,
+        "reason": reasons,
+        "ml_score": ml_result.get("ml_score"),
+        "ml_probability": ml_result.get("ml_probability"),
+        "engine_version": ENGINE_VERSION_FULL,
+    }
+
+    background_tasks.add_task(fire_webhook, client.get("api_key", ""), score_data)
 
     return ScoreResponse(
         transaction_id=request.transaction_id,
