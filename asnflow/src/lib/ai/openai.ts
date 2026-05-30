@@ -2,7 +2,10 @@ import OpenAI from 'openai';
 import type { FormASNData, AbsensiData, LaporanData, ArsipSuratExportData, ToolType } from '@/types';
 
 function getClient() {
-  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+  return new OpenAI({
+    apiKey: process.env.GROQ_API_KEY!,
+    baseURL: 'https://api.groq.com/openai/v1',
+  });
 }
 
 const SYSTEM_PROMPT = `Kamu adalah asisten administrasi ASN Indonesia yang ahli.
@@ -24,7 +27,7 @@ export async function generateExcelData(prompt: string): Promise<{
   summary: string;
 }> {
   const completion = await getClient().chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'llama-3.3-70b-versatile',
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
