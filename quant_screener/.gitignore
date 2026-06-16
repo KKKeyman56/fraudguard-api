@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+*.log
+
+# Cached market data and generated backtest CSVs (keep the dirs, ignore files)
+data/cache/*.csv
+results/backtest/*.csv
