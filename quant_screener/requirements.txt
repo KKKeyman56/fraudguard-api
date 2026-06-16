@@ -1,0 +1,12 @@
+# QuantScreener dependencies (Python 3.10+)
+yfinance==0.2.40
+pandas==2.2.2
+numpy==1.26.4
+httpx==0.27.0
+APScheduler==3.10.4
+python-dotenv==1.0.1
+
+# Backtest engine. VectorBT pulls in numba/llvmlite which can be heavy on a
+# 512MB free tier — if the install fails or OOMs, comment it out: the
+# backtester automatically falls back to a pure-pandas simulator.
+vectorbt==0.26.2
