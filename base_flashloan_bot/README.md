@@ -326,3 +326,66 @@ python monitor.py     # polling tiap MONITOR_INTERVAL detik
 > kecilkan `flash_amount`. Monitor bukan pengganti buffer — saat harga gap
 > cepat, likuidasi tetap bisa mendahului. Pertimbangkan jalankan monitor di
 > infra terpisah yang andal (bukan laptop).
+
+---
+
+# DEPLOY ke Base Sepolia — runbook
+
+> Alamat Aave Base Sepolia (verified `bgd-labs/aave-address-book`):
+> Pool `0x8bAB6d1b75f19e9eD9fCe8b9BD338844fF79aE27`,
+> PoolAddressesProvider `0xE4C23309117Aa30342BFaae6c95c6478e0A4Ad00`,
+> USDC reserve (faucet) `0xba50Cd2A20f6DA35D788639E581bca8d0B5d4D5f`,
+> Uniswap SwapRouter02 `0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4`,
+> QuoterV2 `0xC5290058841028F1614F3A6F0F5816cAd0df5E27`.
+
+### ⚠️ Ekspektasi realistis di testnet
+Di Sepolia, token reserve Aave & pool Uniswap **sering tidak punya likuiditas
+yang cocok**, jadi alur **OPEN penuh** (swap → supply → borrow) **besar
+kemungkinan gagal** di langkah swap/borrow. Sepolia paling berguna untuk:
+deploy, akses owner, jalur **revert/safety**, dan `setAggregator`. Validasi
+**siklus leverage penuh** paling andal lewat **Foundry fork mainnet** (`test/`).
+
+### Langkah
+```bash
+# 0. masuk folder & deps
+cd base_flashloan_bot/python
+pip install -r requirements.txt
+
+# 1. .env
+cp ../.env.example ../.env
+#   isi: NETWORK=base-sepolia
+#        BASE_RPC_URL=https://sepolia.base.org   (atau Alchemy/Infura Sepolia)
+#        PRIVATE_KEY=<wallet bot khusus, JANGAN wallet utama>
+
+# 2. dana testnet
+#   - ETH gas : https://www.alchemy.com/faucets/base-sepolia
+#   - aset Aave: https://bridge-testnet.aave.com/faucet/?marketName=proto_base_sepolia_v3
+
+# 3. PREFLIGHT (cek RPC, chainId, saldo, bytecode tiap address)
+python preflight.py
+#   -> harus '✅ semua cek inti lolos' sebelum lanjut
+
+# 4. deploy contract multi-DEX
+python deploy_routed.py
+#   -> copy 'Contract: 0x...' ke .env: LEVERAGE_CONTRACT=0x...
+
+# 5. preflight lagi (sekarang cek LEVERAGE_CONTRACT + accountData)
+python preflight.py
+
+# 6. (opsional) whitelist aggregator + aktifkan
+#   python -c "from contract_interface import BaseChainClient as C; \
+#     c=C(); print(c.set_aggregator('0x111111125421cA6dc452d289314280a0f8842A65', True))"
+
+# 7. coba pipeline (kemungkinan revert di swap krn likuiditas testnet - itu wajar)
+python run_bot_routed.py
+```
+
+### Troubleshooting cepat
+| Gejala | Kemungkinan sebab | Aksi |
+|---|---|---|
+| `preflight: chainId != expected` | NETWORK/RPC tak cocok | samakan `NETWORK` & `BASE_RPC_URL` |
+| `TIDAK ada bytecode` di preflight | alamat salah / belum ada di chain itu | cek address di BaseScan Sepolia |
+| deploy revert / out of gas | saldo ETH kurang | faucet ETH |
+| open revert di swap | pool Uniswap testnet kosong | wajar di Sepolia → andalkan Foundry fork |
+| open revert `HealthFactorTooLow` | leverage/buffer ketat | turunkan leverage / cek harga |
+| borrow revert | reserve cap / butuh enable collateral | cek param reserve Aave Sepolia |

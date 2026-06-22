@@ -51,14 +51,17 @@ BASE_MAINNET = {
 
 # --------------------------------------------------------------------------- #
 #  BASE SEPOLIA TESTNET (chainId 84532) - selalu test di sini dulu!
-#  NB: di testnet likuiditas Uniswap/Aave bisa sangat tipis. Beberapa address
-#      berbeda; isi sesuai deployment yang kamu pakai sebelum testing.
+#  Aave: dari bgd-labs/aave-address-book (AaveV3BaseSepolia).
+#  PENTING: di testnet, token Aave-reserve & pool Uniswap SERING TAK punya
+#  likuiditas yang cocok -> alur OPEN penuh (swap+supply+borrow) besar
+#  kemungkinan GAGAL di swap/borrow. Sepolia bagus utk uji DEPLOY, akses,
+#  dan jalur revert/safety. Uji siklus leverage PENUH paling andal lewat
+#  Foundry fork mainnet (lihat test/). Pakai faucet Aave utk USDX/aWETH.
 # --------------------------------------------------------------------------- #
 BASE_SEPOLIA = {
     "chain_id": 84532,
-    "aave_pool": "0x07eA79F68B2B3df564D0A34F8e19D9B1e339814b",
-    "aave_pool_addresses_provider": "0xd449FeD49d9C443688d6816fE6872F21402e41de",
-    "balancer_vault": "0xBA12222222228d8Ba445958a75a0704d566BF2C8",
+    "aave_pool": "0x8bAB6d1b75f19e9eD9fCe8b9BD338844fF79aE27",
+    "aave_pool_addresses_provider": "0xE4C23309117Aa30342BFaae6c95c6478e0A4Ad00",
     "uniswap_router02": "0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4",
     "uniswap_quoter_v2": "0xC5290058841028F1614F3A6F0F5816cAd0df5E27",
     # Aerodrome/BaseSwap umumnya TIDAK ada / tidak likuid di Sepolia.
@@ -68,7 +71,8 @@ BASE_SEPOLIA = {
     "baseswap_router": "",
     "sushiswap_router": "",
     "weth": "0x4200000000000000000000000000000000000006",
-    "usdc": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    # USDC reserve Aave Base Sepolia (token faucet, BUKAN USDC mainnet):
+    "usdc": "0xba50Cd2A20f6DA35D788639E581bca8d0B5d4D5f",
 }
 
 
