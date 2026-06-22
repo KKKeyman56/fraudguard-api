@@ -266,3 +266,63 @@ fokus ke **Aave V3 `flashLoanSimple`** (native Base).
 flash-loan callback dengan `minOut` ketat. Optimizer buatan sendiri jadi
 **fallback** saat API down. Mulai dari optimizer ini untuk WETH/USDC; naik ke
 aggregator begitu size-mu cukup besar sampai price impact > biaya integrasi.
+
+---
+
+# UPGRADE 2: Aggregator + Macro/Sizing + Foundry + Monitor
+
+## Modul baru
+| File | Isi |
+|---|---|
+| `python/macro_score.py` | scoring arah (trend/momentum/mean-revert) -> long/short/flat + confidence + volatilitas; `PriceHistory` SQLite |
+| `python/position_sizing.py` | MacroResult -> margin + leverage, di-cap `max_safe_leverage` (buffer >=15%) |
+| `python/aggregator_client.py` | quote + calldata dari **1inch / 0x** (split-routing size besar) |
+| `python/monitor.py` | polling health factor + **auto-deleverage** kalau HF kritis |
+| `test/LeverageFlashLoanRouted.t.sol` + `foundry.toml` | test fork Base mainnet |
+
+## 1) Aggregator (1inch / 0x) — dex id = 4
+Contract `LeverageFlashLoanRouted` kini punya path swap via **calldata aggregator**
+dengan **whitelist** (keamanan) + verifikasi output via balance-delta (`minOut`).
+
+Router yang perlu di-whitelist (verified BaseScan):
+- 1inch AggregationRouterV6: `0x111111125421cA6dc452d289314280a0f8842A65`
+- 0x AllowanceHolder:        `0x0000000000001fF3684f28c67538d4D072C22734`
+
+```python
+# sekali setelah deploy:
+client.set_aggregator("0x111111125421cA6dc452d289314280a0f8842A65", True)  # 1inch
+client.set_aggregator("0x0000000000001fF3684f28c67538d4D072C22734", True)  # 0x
+
+# aktifkan di .env: USE_AGGREGATOR=true  (+ ZEROX_API_KEY / ONEINCH_API_KEY)
+```
+Saat `USE_AGGREGATOR=true`, `auto_trade()` membandingkan output on-chain optimizer
+vs aggregator; kalau aggregator menang **dan** target sudah di-whitelist, ia pakai
+`dex=4`. Kalau belum di-whitelist → tetap pakai DEX on-chain (fail-safe).
+
+> **Keamanan:** calldata aggregator HARUS digenerate dengan `taker/receiver =
+> alamat contract` (bukan EOA). Contract approve + call hanya ke `aggTarget` yang
+> di-whitelist, lalu cek `amountOut >= minOut` (revert `SlippageTooHigh` kalau kurang).
+
+## 2) Foundry tests (fork Base mainnet)
+```bash
+export BASE_RPC_URL=https://mainnet.base.org   # atau Alchemy/Infura
+forge install foundry-rs/forge-std
+forge test --fork-url $BASE_RPC_URL -vvv
+```
+Mencakup: open LONG 3x via UniV3 (HF >= minHF), revert saat minHF mustahil
+(safety), close LONG (debt lunas + PnL balik), akses non-owner ditolak,
+whitelist aggregator. `minOut=0` dipakai khusus di test fork (JANGAN di produksi).
+
+## 3) Monitor / auto-deleverage
+```bash
+python monitor.py     # polling tiap MONITOR_INTERVAL detik
+```
+- `HF <= HF_WARN` (default 1.30) → peringatan.
+- `HF <= HF_ACTION` (default 1.15) → **tutup posisi otomatis** (flash loan +
+  DEX terbaik) sebelum kena likuidasi. Arah posisi dibaca dari entry terbuka
+  terakhir di logger (atau paksa via argumen `run(is_long=...)`).
+
+> Auto-close = **full deleverage** (paling robust/atomik). Untuk partial,
+> kecilkan `flash_amount`. Monitor bukan pengganti buffer — saat harga gap
+> cepat, likuidasi tetap bisa mendahului. Pertimbangkan jalankan monitor di
+> infra terpisah yang andal (bukan laptop).

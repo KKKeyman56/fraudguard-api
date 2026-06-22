@@ -94,6 +94,17 @@ class Settings:
 
     db_path: str = os.getenv("DB_PATH", "leverage_trades.db")
 
+    # ---- aggregator (1inch/0x) opsional untuk split-routing size besar ----
+    use_aggregator: bool = os.getenv("USE_AGGREGATOR", "false").lower() == "true"
+    # router yang di-whitelist on-chain (call target = approve spender):
+    #   1inch AggregationRouterV6 (Base): 0x111111125421cA6dc452d289314280a0f8842A65
+    #   0x AllowanceHolder (Base)       : 0x0000000000001fF3684f28c67538d4D072C22734
+
+    # ---- monitor / auto-deleverage ----
+    hf_warn: float = float(os.getenv("HF_WARN", "1.30"))        # peringatan
+    hf_action: float = float(os.getenv("HF_ACTION", "1.15"))    # ambil tindakan (close)
+    monitor_interval: int = int(os.getenv("MONITOR_INTERVAL", "30"))  # detik
+
     addresses: dict = field(default_factory=dict)
 
     def __post_init__(self):

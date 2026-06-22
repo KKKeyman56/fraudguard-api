@@ -1,0 +1,15 @@
+# Foundry config untuk test contract leverage flash loan (fork Base mainnet).
+# Jalankan:  forge test --fork-url $BASE_RPC_URL -vvv
+# Install dep:  forge install foundry-rs/forge-std
+
+[profile.default]
+src = "contracts"
+test = "test"
+libs = ["lib"]
+solc = "0.8.20"
+optimizer = true
+optimizer_runs = 200
+
+# RPC alias opsional: forge test --fork-url base
+[rpc_endpoints]
+base = "${BASE_RPC_URL}"

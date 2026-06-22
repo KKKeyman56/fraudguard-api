@@ -36,12 +36,28 @@ LEVERAGE_ABI = json.loads("""[
   {"inputs":[],"name":"accountData","outputs":[{"name":"totalCollateralBase","type":"uint256"},{"name":"totalDebtBase","type":"uint256"},{"name":"availableBorrowsBase","type":"uint256"},{"name":"currentLiquidationThreshold","type":"uint256"},{"name":"ltv","type":"uint256"},{"name":"healthFactor","type":"uint256"}],"stateMutability":"view","type":"function"}
 ]""")
 
-# ABI untuk LeverageFlashLoanRouted (multi-DEX). SwapRoute = (dex,uniFee,aeroStable,minOut)
-ROUTED_ABI = json.loads("""[
-  {"inputs":[{"name":"isLong","type":"bool"},{"name":"margin","type":"uint256"},{"name":"flashAmount","type":"uint256"},{"name":"minHealthFactor","type":"uint256"},{"components":[{"name":"dex","type":"uint8"},{"name":"uniFee","type":"uint24"},{"name":"aeroStable","type":"bool"},{"name":"minOut","type":"uint256"}],"name":"route","type":"tuple"}],"name":"openPosition","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"name":"isLong","type":"bool"},{"name":"flashAmount","type":"uint256"},{"components":[{"name":"dex","type":"uint8"},{"name":"uniFee","type":"uint24"},{"name":"aeroStable","type":"bool"},{"name":"minOut","type":"uint256"}],"name":"route","type":"tuple"}],"name":"closePosition","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[],"name":"accountData","outputs":[{"name":"a","type":"uint256"},{"name":"b","type":"uint256"},{"name":"c","type":"uint256"},{"name":"d","type":"uint256"},{"name":"e","type":"uint256"},{"name":"healthFactor","type":"uint256"}],"stateMutability":"view","type":"function"}
-]""")
+# ABI LeverageFlashLoanRouted. SwapRoute=(dex,uniFee,aeroStable,minOut,aggTarget,aggData)
+_ROUTE_COMPONENTS = (
+    '{"components":[{"name":"dex","type":"uint8"},{"name":"uniFee","type":"uint24"},'
+    '{"name":"aeroStable","type":"bool"},{"name":"minOut","type":"uint256"},'
+    '{"name":"aggTarget","type":"address"},{"name":"aggData","type":"bytes"}],'
+    '"name":"route","type":"tuple"}'
+)
+ROUTED_ABI = json.loads("[" + ",".join([
+    '{"inputs":[{"name":"isLong","type":"bool"},{"name":"margin","type":"uint256"},'
+    '{"name":"flashAmount","type":"uint256"},{"name":"minHealthFactor","type":"uint256"},'
+    + _ROUTE_COMPONENTS + '],"name":"openPosition","outputs":[],"stateMutability":"nonpayable","type":"function"}',
+    '{"inputs":[{"name":"isLong","type":"bool"},{"name":"flashAmount","type":"uint256"},'
+    + _ROUTE_COMPONENTS + '],"name":"closePosition","outputs":[],"stateMutability":"nonpayable","type":"function"}',
+    '{"inputs":[{"name":"target","type":"address"},{"name":"allowed","type":"bool"}],'
+    '"name":"setAggregator","outputs":[],"stateMutability":"nonpayable","type":"function"}',
+    '{"inputs":[{"name":"a","type":"address"}],"name":"aggregatorWhitelist",'
+    '"outputs":[{"name":"","type":"bool"}],"stateMutability":"view","type":"function"}',
+    '{"inputs":[],"name":"accountData","outputs":[{"name":"a","type":"uint256"},'
+    '{"name":"b","type":"uint256"},{"name":"c","type":"uint256"},{"name":"d","type":"uint256"},'
+    '{"name":"e","type":"uint256"},{"name":"healthFactor","type":"uint256"}],'
+    '"stateMutability":"view","type":"function"}',
+]) + "]")
 
 # QuoterV2.quoteExactInputSingle (struct param) - dipanggil sebagai 'call' (non-view di ABI Uniswap)
 QUOTER_ABI = json.loads("""[
@@ -187,6 +203,16 @@ class BaseChainClient:
     def close_position_routed(self, is_long: bool, flash_amount: int, route: tuple) -> str:
         fn = self.routed.functions.closePosition(is_long, flash_amount, route)
         return self._send(fn)
+
+    def set_aggregator(self, target: str, allowed: bool = True) -> str:
+        """Whitelist router aggregator (1inch/0x/Paraswap) di contract."""
+        fn = self.routed.functions.setAggregator(Web3.to_checksum_address(target), allowed)
+        return self._send(fn)
+
+    def is_aggregator_whitelisted(self, target: str) -> bool:
+        return self.routed.functions.aggregatorWhitelist(
+            Web3.to_checksum_address(target)
+        ).call()
 
     # ----------------------------------------------------------------- #
     #  Baca posisi

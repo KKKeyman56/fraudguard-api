@@ -27,6 +27,8 @@ from risk_check import assess_position, suggested_min_health_factor
 
 USDC_DECIMALS = 6
 WETH_DECIMALS = 18
+ZERO_ADDR = "0x0000000000000000000000000000000000000000"
+DEX_AGG = 4
 
 
 def _fee_bps(best) -> int:
@@ -86,12 +88,7 @@ def open_long_routed(margin_usdc: float, leverage: float):
         print(f"  {q.dex_name:12} {q.amount_out/10**WETH_DECIMALS:.6f} WETH {tag}")
 
     # --- 4. bentuk SwapRoute + kirim tx ---
-    route = (
-        best.dex_id,
-        best.uni_fee if best.dex_id == DEX_UNIV3 else 0,
-        best.aero_stable if best.dex_id == DEX_AERO else False,
-        rq.min_out(settings.slippage_bps),   # slippage guard on-chain
-    )
+    route = _build_route(rq)
     min_hf = suggested_min_health_factor(settings.min_margin_of_safety)
 
     approve_tx = client.approve_margin(margin_wei)
@@ -121,14 +118,22 @@ def open_long_routed(margin_usdc: float, leverage: float):
 
 
 def _build_route(rq):
-    """Bentuk tuple SwapRoute (dex, uniFee, aeroStable, minOut) dari RouteQuote."""
+    """SwapRoute on-chain DEX: (dex, uniFee, aeroStable, minOut, aggTarget, aggData)."""
     best = rq.best
     return (
         best.dex_id,
         best.uni_fee if best.dex_id == DEX_UNIV3 else 0,
         best.aero_stable if best.dex_id == DEX_AERO else False,
         rq.min_out(settings.slippage_bps),
+        ZERO_ADDR,   # aggTarget tidak dipakai untuk DEX on-chain
+        b"",         # aggData kosong
     )
+
+
+def _build_agg_route(agg, slippage_bps: int):
+    """SwapRoute untuk aggregator (dex=4) dari hasil aggregator_client.AggQuote."""
+    min_out = agg.amount_out * (10_000 - slippage_bps) // 10_000
+    return (DEX_AGG, 0, False, min_out, agg.target, bytes.fromhex(agg.calldata[2:]))
 
 
 def auto_trade(equity_usd: float, seed_prices=None):
@@ -175,15 +180,31 @@ def auto_trade(equity_usd: float, seed_prices=None):
     margin_wei = int(Decimal(str(margin_usdc)) * 10**USDC_DECIMALS)
     if is_long:
         flash_amount = int(Decimal(str(flash_usd)) * 10**USDC_DECIMALS)   # USDC
-        total_in = margin_wei + flash_amount
-        rq = opt.best_route(usdc, weth, total_in)                          # USDC->WETH
+        sell_token, buy_token, sell_amount = usdc, weth, margin_wei + flash_amount
     else:
         flash_amount = int(Decimal(str(flash_usd / price)) * 10**WETH_DECIMALS)  # WETH
-        rq = opt.best_route(weth, usdc, flash_amount)                      # WETH->USDC
+        sell_token, buy_token, sell_amount = weth, usdc, flash_amount
 
+    rq = opt.best_route(sell_token, buy_token, sell_amount)
     route = _build_route(rq)
-    print(f"DEX swap terbaik : {DEX_NAME[rq.best.dex_id]} ({_detail(rq.best)}), "
+    dex_name, dex_detail = DEX_NAME[rq.best.dex_id], _detail(rq.best)
+    onchain_out = rq.best.amount_out
+    print(f"DEX on-chain     : {dex_name} ({dex_detail}) out={onchain_out}, "
           f"impact {rq.slippage_estimate:.2%}")
+
+    # --- 4b. OPSIONAL: bandingkan dgn aggregator (1inch/0x) utk split-routing ---
+    if settings.use_aggregator:
+        from aggregator_client import best_aggregator_quote
+        agg = best_aggregator_quote(sell_token, buy_token, sell_amount, client.routed.address)
+        if agg and agg.amount_out > onchain_out:
+            if not client.is_aggregator_whitelisted(agg.target):
+                print(f"Aggregator {agg.source} lebih baik tapi target {agg.target} "
+                      f"BELUM di-whitelist. Jalankan client.set_aggregator(target). Pakai on-chain.")
+            else:
+                gain = (agg.amount_out / onchain_out - 1) * 100
+                print(f"Aggregator {agg.source} MENANG (+{gain:.2f}%) -> pakai dex=4")
+                route = _build_agg_route(agg, settings.slippage_bps)
+                dex_name, dex_detail = f"agg:{agg.source}", "split-route"
 
     # --- 5. approve + open ---
     min_hf = suggested_min_health_factor(settings.min_margin_of_safety)
@@ -205,7 +226,7 @@ def auto_trade(equity_usd: float, seed_prices=None):
         debt_usd=flash_usd, liquidation_price=sizing.liquidation_price,
         margin_of_safety=sizing.margin_of_safety, ltv_bps=acct["ltv_bps"],
         health_factor=acct["health_factor"], tx_hash=tx,
-        dex_used=DEX_NAME[rq.best.dex_id], dex_detail=_detail(rq.best),
+        dex_used=dex_name, dex_detail=dex_detail,
         expected_out=rq.best.amount_out, slippage_estimate=rq.slippage_estimate,
         fee_paid_bps=_fee_bps(rq.best),
     )

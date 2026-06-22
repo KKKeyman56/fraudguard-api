@@ -104,6 +104,8 @@ contract LeverageFlashLoanRouted {
     error HealthFactorTooLow(uint256 actual, uint256 required);
     error BadDex();
     error TransferFailed();
+    error SlippageTooHigh(uint256 amountOut, uint256 minOut);
+    error AggregatorNotWhitelisted(address target);
 
     /* ---------------------------- Constants --------------------------- */
     uint256 private constant VARIABLE_RATE = 2;
@@ -115,6 +117,7 @@ contract LeverageFlashLoanRouted {
     uint8 private constant DEX_AERO    = 1;
     uint8 private constant DEX_BASESWAP = 2;
     uint8 private constant DEX_SUSHI   = 3;
+    uint8 private constant DEX_AGG     = 4; // aggregator (1inch/0x/Paraswap) via calldata
 
     enum OpKind { OPEN_LONG, OPEN_SHORT, CLOSE_LONG, CLOSE_SHORT }
 
@@ -131,20 +134,29 @@ contract LeverageFlashLoanRouted {
 
     bool private _inFlash;
 
+    // Whitelist router aggregator yang boleh dipanggil via calldata (keamanan!).
+    mapping(address => bool) public aggregatorWhitelist;
+
     /* ----------------------------- Events ----------------------------- */
     event Opened(OpKind kind, uint8 dex, uint256 collateral, uint256 debt, uint256 amountOut, uint256 hf);
     event Closed(OpKind kind, uint8 dex, uint256 returnedToOwner, uint256 hf);
+    event AggregatorSet(address indexed target, bool allowed);
 
     /// @dev Routing data dari off-chain optimizer untuk satu swap.
     /// dex      : 0 UniV3 | 1 Aerodrome | 2 BaseSwap | 3 Sushi
     /// uniFee   : fee tier Uniswap V3 (500/3000/10000) - dipakai kalau dex=0
     /// aeroStable: true=stable pool, false=volatile - dipakai kalau dex=1
     /// minOut   : output minimum (slippage guard) dari quote off-chain
+    /// aggTarget/aggData hanya dipakai kalau dex=4 (DEX_AGG):
+    ///   aggTarget = router aggregator (HARUS di-whitelist) yang juga jadi spender approve
+    ///   aggData   = calldata swap dari API aggregator (receiver = contract ini)
     struct SwapRoute {
         uint8 dex;
         uint24 uniFee;
         bool aeroStable;
         uint256 minOut;
+        address aggTarget;
+        bytes aggData;
     }
 
     constructor(
@@ -346,6 +358,17 @@ contract LeverageFlashLoanRouted {
             uint256[] memory amounts =
                 router.swapExactTokensForTokens(amountIn, route.minOut, path, address(this), block.timestamp);
             amountOut = amounts[amounts.length - 1];
+        } else if (route.dex == DEX_AGG) {
+            // Aggregator (1inch/0x/Paraswap): eksekusi calldata dari API off-chain.
+            // KEAMANAN: target wajib di-whitelist; output diverifikasi via balance delta.
+            if (!aggregatorWhitelist[route.aggTarget]) revert AggregatorNotWhitelisted(route.aggTarget);
+            _safeApprove(tokenIn, route.aggTarget, amountIn);
+            uint256 balBefore = IERC20(tokenOut).balanceOf(address(this));
+            (bool ok, ) = route.aggTarget.call(route.aggData);
+            if (!ok) revert TransferFailed();
+            amountOut = IERC20(tokenOut).balanceOf(address(this)) - balBefore;
+            if (amountOut < route.minOut) revert SlippageTooHigh(amountOut, route.minOut);
+            _safeApprove(tokenIn, route.aggTarget, 0); // reset allowance
         } else {
             revert BadDex();
         }
@@ -356,6 +379,13 @@ contract LeverageFlashLoanRouted {
     /* ================================================================== */
     function rescue(address token, uint256 amount) external onlyOwner {
         _safeTransfer(token, owner, amount);
+    }
+
+    /// @notice Whitelist/aktifkan router aggregator yang boleh dipanggil via calldata.
+    /// Contoh Base: 1inch AggregationRouterV6, 0x AllowanceHolder/ExchangeProxy.
+    function setAggregator(address target, bool allowed) external onlyOwner {
+        aggregatorWhitelist[target] = allowed;
+        emit AggregatorSet(target, allowed);
     }
 
     function accountData()
