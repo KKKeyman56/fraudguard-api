@@ -36,6 +36,13 @@ LEVERAGE_ABI = json.loads("""[
   {"inputs":[],"name":"accountData","outputs":[{"name":"totalCollateralBase","type":"uint256"},{"name":"totalDebtBase","type":"uint256"},{"name":"availableBorrowsBase","type":"uint256"},{"name":"currentLiquidationThreshold","type":"uint256"},{"name":"ltv","type":"uint256"},{"name":"healthFactor","type":"uint256"}],"stateMutability":"view","type":"function"}
 ]""")
 
+# ABI untuk LeverageFlashLoanRouted (multi-DEX). SwapRoute = (dex,uniFee,aeroStable,minOut)
+ROUTED_ABI = json.loads("""[
+  {"inputs":[{"name":"isLong","type":"bool"},{"name":"margin","type":"uint256"},{"name":"flashAmount","type":"uint256"},{"name":"minHealthFactor","type":"uint256"},{"components":[{"name":"dex","type":"uint8"},{"name":"uniFee","type":"uint24"},{"name":"aeroStable","type":"bool"},{"name":"minOut","type":"uint256"}],"name":"route","type":"tuple"}],"name":"openPosition","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"name":"isLong","type":"bool"},{"name":"flashAmount","type":"uint256"},{"components":[{"name":"dex","type":"uint8"},{"name":"uniFee","type":"uint24"},{"name":"aeroStable","type":"bool"},{"name":"minOut","type":"uint256"}],"name":"route","type":"tuple"}],"name":"closePosition","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[],"name":"accountData","outputs":[{"name":"a","type":"uint256"},{"name":"b","type":"uint256"},{"name":"c","type":"uint256"},{"name":"d","type":"uint256"},{"name":"e","type":"uint256"},{"name":"healthFactor","type":"uint256"}],"stateMutability":"view","type":"function"}
+]""")
+
 # QuoterV2.quoteExactInputSingle (struct param) - dipanggil sebagai 'call' (non-view di ABI Uniswap)
 QUOTER_ABI = json.loads("""[
   {"inputs":[{"components":[{"name":"tokenIn","type":"address"},{"name":"tokenOut","type":"address"},{"name":"amountIn","type":"uint256"},{"name":"fee","type":"uint24"},{"name":"sqrtPriceLimitX96","type":"uint160"}],"name":"params","type":"tuple"}],"name":"quoteExactInputSingle","outputs":[{"name":"amountOut","type":"uint256"},{"name":"sqrtPriceX96After","type":"uint160"},{"name":"initializedTicksCrossed","type":"uint32"},{"name":"gasEstimate","type":"uint256"}],"stateMutability":"nonpayable","type":"function"}
@@ -68,11 +75,12 @@ class BaseChainClient:
         )
 
         self.leverage = None
+        self.routed = None
         if settings.contract_address:
-            self.leverage = self.w3.eth.contract(
-                address=Web3.to_checksum_address(settings.contract_address),
-                abi=LEVERAGE_ABI,
-            )
+            addr = Web3.to_checksum_address(settings.contract_address)
+            # bind kedua ABI ke alamat yang sama; pakai .routed kalau deploy versi multi-DEX
+            self.leverage = self.w3.eth.contract(address=addr, abi=LEVERAGE_ABI)
+            self.routed = self.w3.eth.contract(address=addr, abi=ROUTED_ABI)
 
     # ----------------------------------------------------------------- #
     #  Transaksi util
@@ -157,6 +165,27 @@ class BaseChainClient:
         fn = self.leverage.functions.closePosition(
             is_long, use_aave, flash_amount, min_swap_out, pool_fee
         )
+        return self._send(fn)
+
+    # ----------------------------------------------------------------- #
+    #  Open / Close versi MULTI-DEX (LeverageFlashLoanRouted)
+    #  `route` = tuple (dex, uni_fee, aero_stable, min_out) dari dex_optimizer
+    # ----------------------------------------------------------------- #
+    def open_position_routed(
+        self,
+        is_long: bool,
+        margin: int,
+        flash_amount: int,
+        min_health_factor: int,
+        route: tuple,
+    ) -> str:
+        fn = self.routed.functions.openPosition(
+            is_long, margin, flash_amount, min_health_factor, route
+        )
+        return self._send(fn)
+
+    def close_position_routed(self, is_long: bool, flash_amount: int, route: tuple) -> str:
+        fn = self.routed.functions.closePosition(is_long, flash_amount, route)
         return self._send(fn)
 
     # ----------------------------------------------------------------- #

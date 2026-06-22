@@ -48,6 +48,20 @@ class TradeLogger:
                 )
                 """
             )
+            # Migrasi additive: kolom multi-DEX (aman dijalankan berulang).
+            dex_cols = {
+                "dex_used": "TEXT",            # 'uniswap_v3' / 'aerodrome' / 'baseswap' / 'sushiswap'
+                "dex_detail": "TEXT",          # fee tier / stable-volatile
+                "expected_out": "REAL",        # quote dari optimizer (token units)
+                "actual_out": "REAL",          # output aktual on-chain (opsional, dari event)
+                "slippage_estimate": "REAL",   # price impact estimasi (fraksi)
+                "slippage_actual": "REAL",     # (expected-actual)/expected (kalau actual ada)
+                "fee_paid_bps": "INTEGER",     # fee DEX yang dibayar (bps)
+            }
+            existing = {r[1] for r in conn.execute("PRAGMA table_info(leverage_entries)")}
+            for col, typ in dex_cols.items():
+                if col not in existing:
+                    conn.execute(f"ALTER TABLE leverage_entries ADD COLUMN {col} {typ}")
             conn.commit()
 
     def log_entry(
@@ -64,6 +78,14 @@ class TradeLogger:
         ltv_bps: Optional[int] = None,
         health_factor: Optional[float] = None,
         tx_hash: Optional[str] = None,
+        # --- field multi-DEX (dari dex_optimizer) ---
+        dex_used: Optional[str] = None,
+        dex_detail: Optional[str] = None,
+        expected_out: Optional[float] = None,
+        actual_out: Optional[float] = None,
+        slippage_estimate: Optional[float] = None,
+        slippage_actual: Optional[float] = None,
+        fee_paid_bps: Optional[int] = None,
     ) -> int:
         with sqlite3.connect(self.db_path) as conn:
             cur = conn.execute(
@@ -71,8 +93,10 @@ class TradeLogger:
                 INSERT INTO leverage_entries (
                     ts, network, direction, flash_source, entry_price, leverage,
                     margin_usd, position_size_usd, debt_usd, ltv_bps,
-                    liquidation_price, margin_of_safety, health_factor, tx_hash
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    liquidation_price, margin_of_safety, health_factor, tx_hash,
+                    dex_used, dex_detail, expected_out, actual_out,
+                    slippage_estimate, slippage_actual, fee_paid_bps
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     datetime.now(timezone.utc).isoformat(),
@@ -89,6 +113,13 @@ class TradeLogger:
                     margin_of_safety,
                     health_factor,
                     tx_hash,
+                    dex_used,
+                    dex_detail,
+                    expected_out,
+                    actual_out,
+                    slippage_estimate,
+                    slippage_actual,
+                    fee_paid_bps,
                 ),
             )
             conn.commit()

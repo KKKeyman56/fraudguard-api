@@ -12,9 +12,13 @@ JANGAN deploy dengan address salah -> bisa kehilangan dana.
 
 import os
 from dataclasses import dataclass, field
-from dotenv import load_dotenv
 
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:  # dotenv opsional; env bisa di-set lewat shell
+    pass
 
 # --------------------------------------------------------------------------- #
 #  Alamat kontrak resmi BASE MAINNET (chainId 8453) - verified di BaseScan
@@ -32,6 +36,14 @@ BASE_MAINNET = {
     # Uniswap V3
     "uniswap_router02": "0x2626664c2603336E57B271c5C0b26F421741e481",   # SwapRouter02
     "uniswap_quoter_v2": "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a",  # QuoterV2
+    # Aerodrome (Solidly-fork) - verified di BaseScan
+    "aerodrome_router": "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43",
+    "aerodrome_factory": "0x420DD381b31aEf6683db6B902084cB0FFECe40Da",  # PoolFactory
+    # BaseSwap (UniswapV2-fork) - verified di BaseScan
+    "baseswap_router": "0x327Df1E6de05895d2ab08513aaDD9313Fe505d86",
+    # SushiSwap di Base routing-nya via RouteProcessor/API, BUKAN router UniV2 klasik.
+    # Kosongkan -> adapter Sushi non-aktif. Isi hanya kalau sudah verifikasi sendiri.
+    "sushiswap_router": "",
     # Token
     "weth": "0x4200000000000000000000000000000000000006",
     "usdc": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",               # USDC native
@@ -49,6 +61,12 @@ BASE_SEPOLIA = {
     "balancer_vault": "0xBA12222222228d8Ba445958a75a0704d566BF2C8",
     "uniswap_router02": "0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4",
     "uniswap_quoter_v2": "0xC5290058841028F1614F3A6F0F5816cAd0df5E27",
+    # Aerodrome/BaseSwap umumnya TIDAK ada / tidak likuid di Sepolia.
+    # Kosongkan -> optimizer praktis hanya pakai Uniswap V3 di testnet.
+    "aerodrome_router": "",
+    "aerodrome_factory": "",
+    "baseswap_router": "",
+    "sushiswap_router": "",
     "weth": "0x4200000000000000000000000000000000000006",
     "usdc": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
 }

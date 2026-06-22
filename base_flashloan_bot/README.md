@@ -138,3 +138,131 @@ mainnet. Untuk ukuran posisi besar, slippage & borrow-cap Aave bisa menggigit.
   import OpenZeppelin) → compile dengan solc `0.8.20`, `optimizer runs=200`.
 - Helper ERC20 menangani token non-standar (return kosong) dan pola approve
   reset-ke-0.
+
+---
+
+# UPGRADE: Multi-DEX Routing Optimizer
+
+Menambah pemilihan DEX termurah otomatis sebelum tiap swap. Flash loan kini
+fokus ke **Aave V3 `flashLoanSimple`** (native Base).
+
+## File baru / berubah
+| File | Status | Isi |
+|---|---|---|
+| `contracts/LeverageFlashLoanRouted.sol` | **baru** | Aave flashLoanSimple + swap multi-DEX (UniV3/Aerodrome/BaseSwap/Sushi) via routing off-chain |
+| `python/dex_optimizer.py` | **baru** | bandingkan output semua DEX paralel, cache 3 dtk, pilih terbaik |
+| `python/deploy_routed.py` | **baru** | deploy contract versi routed |
+| `python/run_bot_routed.py` | **baru** | orchestrator pakai optimizer |
+| `python/config.py` | diperbarui | tambah alamat Aerodrome/BaseSwap/Sushi |
+| `python/contract_interface.py` | diperbarui | binding + `open_position_routed`/`close_position_routed` |
+| `python/logger.py` | diperbarui | kolom `dex_used`, `fee_paid_bps`, `slippage_estimate`, dll (migrasi additive) |
+
+## Alamat DEX Base mainnet (verified BaseScan)
+| DEX | Kontrak | Address |
+|---|---|---|
+| Aerodrome | Router | `0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43` ✅ |
+| Aerodrome | PoolFactory | `0x420DD381b31aEf6683db6B902084cB0FFECe40Da` ✅ |
+| BaseSwap | Router (UniV2) | `0x327Df1E6de05895d2ab08513aaDD9313Fe505d86` ✅ |
+| Uniswap V3 | QuoterV2 | `0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a` ✅ |
+
+> **SushiSwap di Base**: routing kanoniknya lewat **RouteProcessor + API**, bukan
+> router UniswapV2 klasik. Adapter Sushi dibiarkan **non-aktif** (`sushiswap_router=""`).
+> Jangan isi address sembarangan — `getAmountsOut` ke RouteProcessor akan gagal.
+> Untuk Sushi, lebih baik pakai jalur API (lihat rekomendasi di bawah).
+
+## Identitas DEX (HARUS sinkron contract ↔ optimizer)
+```
+0 = Uniswap V3   (pakai fee tier: 500 / 3000 / 10000)
+1 = Aerodrome    (stable=false volatile, stable=true stable pool)
+2 = BaseSwap     (UniswapV2-style)
+3 = SushiSwap    (UniswapV2-style, opsional)
+```
+
+## Diagram alur (optimizer ⟶ flash loan)
+
+```
+                         OFF-CHAIN (Python)
+ ┌──────────────────────────────────────────────────────────────────────┐
+ │  run_bot_routed.py                                                     │
+ │      │                                                                 │
+ │      │ 1. harga & ukuran posisi                                        │
+ │      ▼                                                                 │
+ │  dex_optimizer.best_route(USDC, WETH, amount)                         │
+ │      │   ├─ UniV3 Quoter  (fee 500/3000/10000) ┐                       │
+ │      │   ├─ Aerodrome     (volatile + stable)  │  query PARALEL        │
+ │      │   ├─ BaseSwap      (getAmountsOut)      │  (ThreadPoolExecutor) │
+ │      │   └─ SushiSwap*    (opsional)           ┘  cache 3 dtk          │
+ │      ▼                                                                 │
+ │  pilih output TERBESAR  ->  RouteQuote{dex, fee/stable, minOut}        │
+ │      │                                                                 │
+ │      │ 2. risk_check.assess_position()  -> buffer >= 15% ? lanjut      │
+ │      ▼                                                                 │
+ │  contract_interface.open_position_routed(..., SwapRoute)              │
+ └──────┼─────────────────────────────────────────────────────────────-─┘
+        │  tx (1 panggilan)
+        ▼                         ON-CHAIN (atomik, 1 transaksi)
+ ┌──────────────────────────────────────────────────────────────────────┐
+ │  LeverageFlashLoanRouted.openPosition()                               │
+ │     └─ Aave.flashLoanSimple(USDC) ─► executeOperation():              │
+ │            ├─ _swap() ──► DEX terpilih (route dari off-chain)         │
+ │            │                 └─ minOut = slippage guard (revert kalau  │
+ │            │                    harga sudah bergerak melewati batas)   │
+ │            ├─ Aave.supply(WETH)        (collateral)                    │
+ │            ├─ Aave.borrow(USDC)        (= flash + premium)             │
+ │            ├─ require healthFactor >= minHF   ◄── safety on-chain      │
+ │            └─ approve repay ► Aave tarik (flash + premium)            │
+ └──────────────────────────────────────────────────────────────────────┘
+        │
+        ▼  3. logger.log_entry(..., dex_used, fee_paid_bps, slippage_estimate)
+```
+
+## Risiko TAMBAHAN dari multi-DEX routing
+
+1. **Race condition quote ⟶ eksekusi.** Quote diambil off-chain pada blok T,
+   tx di-mine pada blok T+n. Harga/likuiditas DEX bisa berubah → DEX yang tadi
+   "terbaik" jadi bukan terbaik, atau output turun. **Mitigasi:** cache pendek
+   (3 dtk), `minOut` ketat on-chain (kalau meleset → revert, bukan rugi), dan
+   kirim tx segera setelah quote. Catatan: `minOut` melindungi dari harga buruk,
+   **tapi tidak menjamin** kamu dapat DEX paling optimal saat eksekusi.
+2. **MEV / sandwich di Base.** Base sekarang punya **Flashblocks** (pre-confirm
+   ~200ms) dan sequencer-nya tidak menjalankan lelang MEV publik seperti
+   mainnet, jadi sandwich klasik **lebih sulit tapi tidak nol** (terutama untuk
+   swap besar di pool dangkal). Optimizer yang memilih pool likuid + `minOut`
+   ketat sudah membantu. Untuk size besar pertimbangkan private/protected RPC.
+3. **Gas overhead multi-query vs profit.** Query banyak DEX **gratis** kalau
+   pakai `eth_call` ke node sendiri (tidak ada gas) — overhead-nya **latency**,
+   bukan gas. Yang mahal: kalau kamu nekat quote on-chain di dalam tx. Desain
+   ini sengaja off-chain → on-chain hanya 1 swap. Tetap: tiap RPC call ada
+   biaya kalau pakai provider berbayar per-request; cache 3 dtk meredam itu.
+4. **Likuiditas tipis Aerodrome/BaseSwap untuk size besar.** Pool kecil →
+   `getAmountsOut` bisa kelihatan bagus untuk probe kecil tapi price impact
+   meledak di size penuh. `slippage_estimate` (impact via probe) di optimizer
+   memberi sinyal ini; pertimbangkan **split routing** atau batasi size per-DEX.
+5. **Quote ≠ eksekusi (lagi).** `getAmountsOut`/Quoter adalah estimasi blok
+   sekarang; `exactInputSingle` UniV3 bahkan bukan `view`. Selalu andalkan
+   `minOut`, jangan treat quote sebagai harga pasti.
+6. **Stale cache.** Cache 3 dtk = ada kemungkinan pakai harga basi saat pasar
+   bergerak cepat. Untuk entry besar, set TTL lebih pendek / bypass cache.
+
+## Rekomendasi: aggregator API (1inch/Paraswap/0x) vs optimizer sendiri
+
+**Pakai optimizer sendiri (modul ini) kalau:**
+- Pair sederhana & likuid (WETH/USDC) dengan jumlah venue terbatas.
+- Mau kontrol penuh, tanpa dependensi/limit API pihak ketiga, dan butuh
+  integrasi rapi ke `minOut` + flash-loan callback.
+- Size kecil–menengah di mana single-pool routing sudah optimal.
+
+**Pakai aggregator (1inch / Paraswap / 0x — semua live di Base) kalau:**
+- Size **besar** yang butuh **split routing** lintas banyak pool/DEX untuk
+  menekan price impact (aggregator jauh lebih jago di sini).
+- Mau cakupan DEX luas (termasuk Sushi RouteProcessor) tanpa nulis tiap adapter.
+- Siap menerima: ketergantungan API (rate limit, downtime), kalldata swap yang
+  di-generate eksternal harus dieksekusi via router aggregator di dalam
+  `executeOperation` (perlu adapter "generic call" di contract + whitelist
+  target demi keamanan), dan harga quote yang juga bisa stale.
+
+**Praktik production yang umum (hybrid):** pakai aggregator API untuk
+**mendapatkan kalldata swap optimal**, lalu eksekusi kalldata itu di dalam
+flash-loan callback dengan `minOut` ketat. Optimizer buatan sendiri jadi
+**fallback** saat API down. Mulai dari optimizer ini untuk WETH/USDC; naik ke
+aggregator begitu size-mu cukup besar sampai price impact > biaya integrasi.
