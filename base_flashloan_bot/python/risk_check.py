@@ -112,6 +112,25 @@ def suggested_min_health_factor(margin_of_safety_target: float = 0.15) -> int:
     return int(hf * 1e18)
 
 
+def max_safe_leverage(is_long: bool, buffer_target: float, liq_threshold: float) -> float:
+    """
+    Leverage maksimum yang MASIH menjaga margin-of-safety >= buffer_target.
+    Diturunkan dari rumus buffer di assess_position():
+      LONG  : buffer = 1 - (L-1)/(L*LT)  ->  L_max = 1 / (1 - (1-B)*LT)
+      SHORT : buffer = (L*LT)/(L-1) - 1  ->  L_max = (1+B) / ((1+B) - LT)
+    Position sizer pakai ini sebagai plafon leverage supaya trade tak ditolak risk.
+    """
+    B, LT = buffer_target, liq_threshold
+    if is_long:
+        denom = 1.0 - (1.0 - B) * LT
+    else:
+        denom = (1.0 + B) - LT
+    if denom <= 0:
+        return 1.0
+    return max(1.0, (1.0 if is_long else (1.0 + B)) / denom)
+
+
+
 def _reject(is_long, price, lt, msg) -> RiskAssessment:
     return RiskAssessment(
         is_long=is_long,
