@@ -31,6 +31,8 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable   # nightly punya bug fork "sun_path length exceeds" di CI
 
       - name: Install forge-std
         # clone langsung ke lib/ (auto-remap: forge-std/ -> lib/forge-std/src/)
