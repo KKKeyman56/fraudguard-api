@@ -47,7 +47,17 @@ jobs:
 
       - name: Test (fork Base mainnet)
         if: steps.check.outputs.has_rpc == 'true'
-        run: forge test --fork-url "$BASE_RPC_URL" -vvv
+        run: |
+          # buang semua whitespace (spasi/enter) yang bikin foundry salah parse URL
+          URL="$(printf '%s' "$BASE_RPC_URL" | tr -d '[:space:]')"
+          echo "RPC length (setelah trim): ${#URL}"
+          case "$URL" in
+            http://*|https://*) : ;;
+            *)
+              echo "::error::BASE_RPC_URL bukan URL http(s) valid. Set ulang secret = https://mainnet.base.org (tanpa spasi/teks lain)."
+              exit 1 ;;
+          esac
+          forge test --fork-url "$URL" -vvv
         env:
           BASE_RPC_URL: ${{ secrets.BASE_RPC_URL }}
 
