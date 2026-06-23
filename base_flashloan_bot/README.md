@@ -389,3 +389,26 @@ python run_bot_routed.py
 | open revert di swap | pool Uniswap testnet kosong | wajar di Sepolia → andalkan Foundry fork |
 | open revert `HealthFactorTooLow` | leverage/buffer ketat | turunkan leverage / cek harga |
 | borrow revert | reserve cap / butuh enable collateral | cek param reserve Aave Sepolia |
+
+---
+
+# CI: Foundry fork test otomatis (GitHub Actions)
+
+Workflow `.github/workflows/foundry.yml` otomatis compile + jalanin
+`forge test` **fork Base mainnet** tiap push/PR yang menyentuh contract/test
+(juga bisa di-trigger manual dari tab **Actions**). Kamu **tak perlu install
+Foundry di laptop** — semua jalan di runner GitHub.
+
+### Setup (sekali): tambah secret RPC mainnet
+1. Repo GitHub → **Settings** → **Secrets and variables** → **Actions**.
+2. **New repository secret**:
+   - Name: `BASE_RPC_URL`
+   - Value: RPC Base **MAINNET** (mis. `https://base-mainnet.g.alchemy.com/v2/<KEY>`;
+     `https://mainnet.base.org` juga bisa tapi rawan rate-limit).
+3. Selesai. Push berikutnya akan menjalankan fork test; lihat hasil di tab
+   **Actions**. Kalau secret belum di-set, workflow tetap compile contract dan
+   memberi warning (fork test dilewati, bukan gagal).
+
+> Kenapa fork **mainnet** padahal deploy di Sepolia? Karena hanya mainnet yang
+> punya likuiditas Aave + Uniswap asli untuk menguji siklus leverage penuh
+> (open→swap→supply→borrow→close) secara realistis, tetap dengan dana bohongan.

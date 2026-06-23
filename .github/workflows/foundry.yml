@@ -1,0 +1,57 @@
+name: Foundry CI
+
+# Jalankan test contract (fork Base mainnet) otomatis tiap push/PR yang
+# menyentuh contract atau test. Fork mainnet dipakai supaya likuiditas Aave +
+# Uniswap ASLI tersedia (testnet Sepolia tak punya likuiditas yang cocok).
+
+on:
+  push:
+    paths:
+      - "base_flashloan_bot/contracts/**"
+      - "base_flashloan_bot/test/**"
+      - "base_flashloan_bot/foundry.toml"
+      - ".github/workflows/foundry.yml"
+  pull_request:
+    paths:
+      - "base_flashloan_bot/contracts/**"
+      - "base_flashloan_bot/test/**"
+      - "base_flashloan_bot/foundry.toml"
+      - ".github/workflows/foundry.yml"
+  workflow_dispatch: {}   # bisa di-trigger manual dari tab Actions
+
+jobs:
+  forge-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: base_flashloan_bot
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Install forge-std
+        # clone langsung ke lib/ (auto-remap: forge-std/ -> lib/forge-std/src/)
+        run: git clone --depth 1 https://github.com/foundry-rs/forge-std lib/forge-std
+
+      - name: Compile (forge build)
+        run: forge build --sizes
+
+      - name: Cek RPC secret tersedia?
+        id: check
+        run: echo "has_rpc=${{ secrets.BASE_RPC_URL != '' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Test (fork Base mainnet)
+        if: steps.check.outputs.has_rpc == 'true'
+        run: forge test --fork-url "$BASE_RPC_URL" -vvv
+        env:
+          BASE_RPC_URL: ${{ secrets.BASE_RPC_URL }}
+
+      - name: Lewati fork test (secret belum di-set)
+        if: steps.check.outputs.has_rpc != 'true'
+        run: |
+          echo "::warning::Secret BASE_RPC_URL belum di-set -> fork test dilewati."
+          echo "Set di: Settings > Secrets and variables > Actions > New repository secret"
+          echo "Name: BASE_RPC_URL  | Value: RPC Base MAINNET (mis. Alchemy)"
