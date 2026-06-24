@@ -26,6 +26,8 @@ import {LeverageFlashLoanRouted} from "../contracts/LeverageFlashLoanRouted.sol"
 interface IERC20T {
     function balanceOf(address) external view returns (uint256);
     function approve(address, uint256) external returns (bool);
+    function transfer(address, uint256) external returns (bool);
+    function transferFrom(address, address, uint256) external returns (bool);
 }
 
 contract LeverageFlashLoanRoutedTest is Test {
@@ -122,5 +124,76 @@ contract LeverageFlashLoanRoutedTest is Test {
         });
         vm.expectRevert(); // AggregatorNotWhitelisted
         bot.openPosition(true, 1_000e6, 2_000e6, 1.05e18, r);
+    }
+
+    /* 6. OPEN + CLOSE SHORT via Uniswap V3 */
+    function test_OpenAndCloseShort_Univ3() public {
+        // SHORT: margin USDC, flash WETH; swap WETH->USDC, supply USDC, borrow WETH.
+        uint256 margin = 2_000e6;     // 2000 USDC
+        uint256 flashWeth = 0.3e18;   // flash 0.3 WETH
+        LeverageFlashLoanRouted.SwapRoute memory r = LeverageFlashLoanRouted.SwapRoute({
+            dex: DEX_UNIV3, uniFee: FEE_005, aeroStable: false,
+            minOut: 0, aggTarget: address(0), aggData: ""
+        });
+
+        bot.openPosition(false, margin, flashWeth, 1.05e18, r);
+        (uint256 coll, uint256 debt,,,, uint256 hf) = bot.accountData();
+        assertGt(coll, 0, "ada collateral USDC");
+        assertGt(debt, 0, "ada debt WETH");
+        assertGe(hf, 1.05e18, "HF >= minHF");
+
+        // close: flash WETH >= debt, swap USDC->WETH, sisa WETH ke owner
+        uint256 wethBefore = IERC20T(WETH).balanceOf(owner);
+        bot.closePosition(false, 0.35e18, r);
+        (, uint256 debtAfter,,,,) = bot.accountData();
+        assertEq(debtAfter, 0, "debt WETH lunas");
+        assertGt(IERC20T(WETH).balanceOf(owner), wethBefore, "PnL WETH balik ke owner");
+    }
+
+    /* 7. SLIPPAGE: minOut mustahil -> swap revert -> seluruh flash revert */
+    function test_RevertWhen_SlippageTooHigh() public {
+        LeverageFlashLoanRouted.SwapRoute memory r = LeverageFlashLoanRouted.SwapRoute({
+            dex: DEX_UNIV3, uniFee: FEE_005, aeroStable: false,
+            minOut: 1_000e18,            // minta >= 1000 WETH dari 3000 USDC: mustahil
+            aggTarget: address(0), aggData: ""
+        });
+        vm.expectRevert(); // Uniswap "Too little received"
+        bot.openPosition(true, 1_000e6, 2_000e6, 1.05e18, r);
+    }
+
+    /* 8. AGGREGATOR (dex=4): jalur calldata via router mock yang di-whitelist */
+    function test_OpenLong_ViaAggregator() public {
+        MockAggregator agg = new MockAggregator();
+        deal(WETH, address(agg), 5e18);     // danai mock dgn WETH utk "hasil swap"
+        bot.setAggregator(address(agg), true);
+
+        uint256 margin = 3_000e6;
+        uint256 flash = 1_000e6;
+        uint256 totalIn = margin + flash;   // 4000 USDC masuk ke aggregator
+        uint256 wethOut = 2e18;             // mock kasih 2 WETH (collateral besar)
+
+        bytes memory aggData = abi.encodeWithSelector(
+            MockAggregator.swap.selector, USDC, totalIn, WETH, wethOut
+        );
+        LeverageFlashLoanRouted.SwapRoute memory r = LeverageFlashLoanRouted.SwapRoute({
+            dex: 4, uniFee: 0, aeroStable: false,
+            minOut: 1e18,                   // balance-delta harus >= 1 WETH
+            aggTarget: address(agg), aggData: aggData
+        });
+
+        bot.openPosition(true, margin, flash, 1.05e18, r);
+        (uint256 coll, uint256 debt,,,, uint256 hf) = bot.accountData();
+        assertGt(coll, 0, "collateral via aggregator");
+        assertGt(debt, 0, "debt terbentuk");
+        assertGe(hf, 1.05e18, "HF >= minHF");
+    }
+}
+
+/// @dev Router aggregator tiruan: tarik tokenIn (pakai allowance) lalu kirim tokenOut.
+/// Meniru perilaku 1inch/0x untuk menguji jalur dex=4 tanpa API eksternal.
+contract MockAggregator {
+    function swap(address tokenIn, uint256 amountIn, address tokenOut, uint256 amountOut) external {
+        IERC20T(tokenIn).transferFrom(msg.sender, address(this), amountIn);
+        IERC20T(tokenOut).transfer(msg.sender, amountOut);
     }
 }
